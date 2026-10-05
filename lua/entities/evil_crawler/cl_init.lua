@@ -18,9 +18,9 @@ local FOOT_SOUNDS = {
 	"npc/antlion/foot4.wav",
 }
 
-local FLESH = Color(70, 42, 46)
-local BONE = Color(215, 200, 185)
-local CORE = Color(60, 34, 40)
+local FLESH = Color(34, 28, 30)
+local BONE = Color(92, 84, 78)
+local CORE = Color(30, 25, 27)
 local DEBUG_TARGET = Color(0, 255, 0)
 local DEBUG_DANGLE = Color(255, 160, 0)
 
@@ -260,7 +260,7 @@ local function LimbRadius(f, limb)
 end
 
 local function LimbColor(f, limb)
-	local k = f ^ 4
+	local k = f ^ 5
 	local b = limb.shade
 	return Lerp(k, FLESH.r, BONE.r) * b, Lerp(k, FLESH.g, BONE.g) * b, Lerp(k, FLESH.b, BONE.b) * b
 end
@@ -269,6 +269,9 @@ local function CoreRadius(dx, dy, dz, self)
 	local morph = self.Morph
 	local core = morph.core
 	local t = self.CoreTime
+	local s = core.stretch
+	local ex, ey, ez = dx / s.x, dy / s.y, dz / s.z
+	local ellipsoid = 1 / math.sqrt(ex * ex + ey * ey + ez * ez)
 	local r = self.Pulse
 	for _, w in ipairs(core.waves) do
 		r = r + w.amp * math.sin((dx * w.x + dy * w.y + dz * w.z) * w.freq + t * w.speed + w.phase)
@@ -281,7 +284,7 @@ local function CoreRadius(dx, dy, dz, self)
 			r = r + limb.swell * k * k
 		end
 	end
-	return core.radius * (1 + r)
+	return core.radius * ellipsoid * (1 + r)
 end
 
 function ENT:Draw()

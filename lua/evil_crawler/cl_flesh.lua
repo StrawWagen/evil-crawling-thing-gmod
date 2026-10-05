@@ -10,10 +10,6 @@ Flesh.Material = CreateMaterial("evil_crawler_flesh", "UnlitGeneric", {
 	["$vertexcolor"] = 1,
 	["$nocull"] = 1,
 })
-local source = Material("models/flesh")
-if not source:IsError() then
-	Flesh.Material:SetTexture("$basetexture", source:GetTexture("$basetexture"))
-end
 
 local AXES = { Vector(1, 0, 0), Vector(-1, 0, 0), Vector(0, 1, 0), Vector(0, -1, 0), Vector(0, 0, 1), Vector(0, 0, -1) }
 local cube = { 0, 0, 0, 0, 0, 0 }
