@@ -1,0 +1,11 @@
+{
+	"title": "Evil Crawling Thing",
+	"type": "entity",
+	"tags": [ "fun", "scenic" ],
+	"ignore": [
+		"*.md",
+		"*.blend",
+		"*.blend1",
+		".git*"
+	]
+}
