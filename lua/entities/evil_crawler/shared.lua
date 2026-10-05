@@ -8,7 +8,7 @@ ENT.Category = "Evil Crawling Thing"
 ENT.Spawnable = true
 ENT.RenderGroup = RENDERGROUP_OPAQUE
 
-ENT.BodyHeight = 30 -- until the creature has grown and knows its own height
+ENT.BodyHeight = 64 -- until the creature has grown and knows its own height
 
 function ENT:SetupDataTables()
 	self:NetworkVar("Int", 0, "Seed")

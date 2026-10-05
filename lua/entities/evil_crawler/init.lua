@@ -2,6 +2,7 @@ AddCSLuaFile("cl_init.lua")
 AddCSLuaFile("shared.lua")
 AddCSLuaFile("evil_crawler/sh_ik.lua")
 AddCSLuaFile("evil_crawler/sh_morph.lua")
+AddCSLuaFile("evil_crawler/cl_flesh.lua")
 include("shared.lua")
 
 local cv_speed = CreateConVar("evil_crawler_speed", "220", FCVAR_ARCHIVE, "Top crawl speed")
@@ -26,10 +27,14 @@ function ENT:Initialize()
 	self:SetModel("models/props_junk/PopCan01a.mdl")
 	self:SetMoveType(MOVETYPE_NOCLIP)
 	self:SetSolid(SOLID_BBOX)
-	self:SetCollisionBounds(Vector(-14, -14, -14), Vector(14, 14, 14))
 
 	if self:GetSeed() == 0 then self:SetSeed(math.random(1, 2 ^ 30)) end
-	self.BodyHeight = EvilCrawler.Grow(self:GetSeed()).height
+	local morph = EvilCrawler.Grow(self:GetSeed())
+	self.BodyHeight = morph.height
+	self.CoreRadius = morph.core.radius
+
+	local r = self.CoreRadius
+	self:SetCollisionBounds(Vector(-r, -r, -r), Vector(r, r, r))
 
 	self.BodyUp = self.SpawnUp or Vector(0, 0, 1)
 	self.Facing = self:GetForward()
@@ -83,7 +88,7 @@ function ENT:Crawl(dt)
 		local wish = Vector()
 		if target then
 			local to = target - pos
-			local slowdown = math.Clamp((to:Length() - 24) / 80, 0, 1)
+			local slowdown = math.Clamp((to:Length() - self.BodyHeight) / (self.BodyHeight * 3), 0, 1)
 			to = to - up * to:Dot(up)
 			if to:LengthSqr() > 1 then
 				wish = to:GetNormalized() * cv_speed:GetFloat() * slowdown
@@ -95,7 +100,7 @@ function ENT:Crawl(dt)
 
 		local step = self.Vel * dt
 		if step:LengthSqr() > 0 then
-			local block = self:Trace(pos, pos + step + step:GetNormalized() * 12)
+			local block = self:Trace(pos, pos + step + step:GetNormalized() * self.CoreRadius)
 			if block.Hit then
 				step = Vector()
 				self.Vel = self.Vel - block.HitNormal * self.Vel:Dot(block.HitNormal)
