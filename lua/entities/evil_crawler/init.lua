@@ -6,9 +6,48 @@ AddCSLuaFile("evil_crawler/cl_flesh.lua")
 include("shared.lua")
 
 local cv_speed = CreateConVar("evil_crawler_speed", "220", FCVAR_ARCHIVE, "Top crawl speed")
+local cv_probes = CreateConVar("evil_crawler_debug_probes", "0", 0, "Draw surface probes (needs developer 1)")
 
 local GRAVITY = 600
-local SURFACE_REACH = 48
+local STICK_RATE = 8 -- how fast the body turns to match the surface under it
+local HOLD_RATE = 10 -- how fast it settles back to standing height
+local GRIP = 0.05 -- probe weight needed to hold on; below it, it falls
+local REGRIP = 0.2 -- probe weight needed to catch hold again while falling
+local PROBE_REACH = 2.2 -- probes feel this many body heights out
+
+-- Probe directions in body space (x forward, y left, z up): straight down,
+-- two cones fanning out below, and a horizontal ring.
+local DOWN, RING = { Vector(0, 0, -1) }, {}
+for i = 0, 7 do
+	local a = i / 8 * math.pi * 2
+	local h = Vector(math.cos(a), math.sin(a), 0)
+	DOWN[#DOWN + 1] = (h * 0.7 - Vector(0, 0, 1)):GetNormalized()
+	DOWN[#DOWN + 1] = (h * 1.6 - Vector(0, 0, 1)):GetNormalized()
+	RING[#RING + 1] = h
+end
+local WRAP_DEPTHS = { 1.15, 1.6 }
+local PROBE_COLOR = Color(0, 200, 255)
+
+local function Rotate(v, axis, angle)
+	local c, s = math.cos(angle), math.sin(angle)
+	return v * c + axis:Cross(v) * s + axis * (axis:Dot(v) * (1 - c))
+end
+
+-- Turns the body frame so up swings a fraction t of the way toward n.
+-- Facing rides along on the same rotation, so walking straight into a wall
+-- turns facing up the wall instead of collapsing.
+local function Turn(up, facing, n, t)
+	local axis = up:Cross(n)
+	local s, c = axis:Length(), up:Dot(n)
+	if s < 1e-4 then
+		if c > 0 then return up, facing end
+		axis = facing
+	else
+		axis = axis / s
+	end
+	local angle = math.atan2(s, c) * t
+	return Rotate(up, axis, angle):GetNormalized(), Rotate(facing, axis, angle):GetNormalized()
+end
 
 function ENT:SpawnFunction(ply, tr, class)
 	if not tr.Hit then return end
@@ -33,9 +72,15 @@ function ENT:Initialize()
 	self.BodyHeight = morph.height
 	self:SetCollisionBounds(Vector(-12, -12, -12), Vector(12, 12, 12))
 
-	self.BodyUp = self.SpawnUp or Vector(0, 0, 1)
-	self.Facing = self:GetForward()
+	local up = self.SpawnUp or Vector(0, 0, 1)
+	local facing = self:GetForward()
+	facing = facing - up * facing:Dot(up)
+	if facing:LengthSqr() < 1e-4 then facing = up:Angle():Up() end
+
+	self.BodyUp = up
+	self.Facing = facing:GetNormalized()
 	self.Vel = Vector()
+	self.Falling = false
 end
 
 function ENT:Think()
@@ -54,77 +99,111 @@ function ENT:GetTargetPos()
 	if tr.Hit then return tr.HitPos end
 end
 
--- The surface the body clings to: a wall ahead it wants to climb, else the
--- ground below, else the face of an edge it just walked over.
-function ENT:FindSurface(pos, up, facing, target)
+-- Feels for nearby surfaces with a spread of rays and blends everything they
+-- touch, nearer hits weighing more. Near a corner both faces get felt, so the
+-- blended surface (and the body with it) rounds the corner instead of
+-- snapping between faces. Returns the blended normal, a point on the blended
+-- surface, and the total grip.
+function ENT:SenseSurface(pos, fwd, left, up, move)
 	local h = self.BodyHeight
+	local reach = h * PROBE_REACH
+	local normal, point, grip = Vector(), Vector(), 0
 
-	local ahead = self:Trace(pos, pos + facing * (h + 12))
-	if ahead.Hit and ahead.HitNormal:Dot(up) < 0.7 and target
-		and (target - ahead.HitPos):Dot(ahead.HitNormal) < 8 then
-		return ahead
+	local function probe(from, dir, len, weight)
+		local tr = self:Trace(from, from + dir * len)
+		if not tr.Hit or tr.StartSolid then return false end
+		if cv_probes:GetBool() then debugoverlay.Line(from, tr.HitPos, 0.05, PROBE_COLOR, true) end
+		local near = 1 - math.min(1, tr.HitPos:Distance(pos) / reach)
+		local w = weight * near * near
+		normal:Add(tr.HitNormal * w)
+		point:Add(tr.HitPos * w)
+		grip = grip + w
+		return true
 	end
 
-	local below = self:Trace(pos + up * 8, pos - up * (h + SURFACE_REACH))
-	if below.Hit then return below end
+	local function world(v)
+		return fwd * v.x + left * v.y + up * v.z
+	end
 
-	local under = pos - up * (h + 16)
-	local wrap = self:Trace(under, under - facing * (h + 40))
-	if wrap.Hit then return wrap end
+	local downHits = 0
+	for _, d in ipairs(DOWN) do
+		if probe(pos, world(d), reach, 1) then downHits = downHits + 1 end
+	end
+
+	-- walls around it, felt mostly in the direction it's going
+	for _, d in ipairs(RING) do
+		local dir = world(d)
+		probe(pos, dir, h * 1.5, math.max(0.25, dir:Dot(move)))
+	end
+
+	-- partly over an edge: reach in from beyond and below for the face it's
+	-- going over, so it can wrap around onto it
+	if downHits < #DOWN * 0.6 then
+		for _, depth in ipairs(WRAP_DEPTHS) do
+			local below = pos - up * (h * depth)
+			for _, d in ipairs(RING) do
+				local dir = world(d)
+				probe(below + dir * (h * 1.3), -dir, h * 1.3, math.max(0.3, dir:Dot(move)))
+			end
+		end
+	end
+
+	if grip <= 0 then return nil, nil, 0 end
+	return normal:GetNormalized(), point / grip, grip
+end
+
+-- Moves without passing through anything, sliding along what it hits.
+function ENT:SafeMove(from, to)
+	local tr = self:Trace(from, to)
+	if not tr.Hit then return to end
+	if tr.StartSolid then return from end
+	self.Vel = self.Vel - tr.HitNormal * math.min(0, self.Vel:Dot(tr.HitNormal))
+	return tr.HitPos + tr.HitNormal
 end
 
 function ENT:Crawl(dt)
+	local h = self.BodyHeight
 	local pos = self:GetPos()
-	local up = self.BodyUp
-	local target = self:GetTargetPos()
-	local surface = self:FindSurface(pos, up, self.Facing, target)
+	local up, fwd = self.BodyUp, self.Facing
+	local move = self.Vel:LengthSqr() > 100 and self.Vel:GetNormalized() or fwd
+	local normal, anchor, grip = self:SenseSurface(pos, fwd, up:Cross(fwd), up, move)
 
-	if surface then
-		up = LerpVector(math.min(1, dt * 8), up, surface.HitNormal):GetNormalized()
+	self.Falling = grip < (self.Falling and REGRIP or GRIP)
+
+	if not self.Falling then
+		up, fwd = Turn(up, fwd, normal, 1 - math.exp(-dt * STICK_RATE))
 
 		local wish = Vector()
+		local target = self:GetTargetPos()
 		if target then
 			local to = target - pos
-			local slowdown = math.Clamp((to:Length() - self.BodyHeight) / (self.BodyHeight * 3), 0, 1)
-			to = to - up * to:Dot(up)
-			if to:LengthSqr() > 1 then
-				wish = to:GetNormalized() * cv_speed:GetFloat() * slowdown
-			end
+			local dist = to:Length()
+			local flat = to - up * to:Dot(up)
+			-- target is straight above or below: carry on until a wall turns it that way
+			if flat:Length() < dist * 0.3 then flat = fwd end
+			wish = flat:GetNormalized() * cv_speed:GetFloat() * math.Clamp((dist - h) / (h * 3), 0, 1)
 		end
 
-		self.Vel = LerpVector(math.min(1, dt * 6), self.Vel, wish)
+		self.Vel = LerpVector(1 - math.exp(-dt * 6), self.Vel, wish)
 		self.Vel = self.Vel - up * self.Vel:Dot(up)
 
-		local step = self.Vel * dt
-		if step:LengthSqr() > 0 then
-			local block = self:Trace(pos, pos + step + step:GetNormalized() * 16)
-			if block.Hit then
-				step = Vector()
-				self.Vel = self.Vel - block.HitNormal * self.Vel:Dot(block.HitNormal)
-			end
-		end
-		pos = pos + step
-
-		-- hold standing height above the surface
-		local n = surface.HitNormal
-		local err = self.BodyHeight - (pos - surface.HitPos):Dot(n)
-		pos = pos + n * err * math.min(1, dt * 12)
+		local err = h - (pos - anchor):Dot(normal)
+		pos = self:SafeMove(pos, pos + self.Vel * dt + normal * (err * (1 - math.exp(-dt * HOLD_RATE))))
 	else
-		up = LerpVector(math.min(1, dt * 3), up, vector_up):GetNormalized()
-		self.Vel = self.Vel - vector_up * GRAVITY * dt
-
-		local fall = self:Trace(pos, pos + self.Vel * dt)
-		pos = fall.Hit and fall.HitPos + fall.HitNormal * 2 or pos + self.Vel * dt
+		up, fwd = Turn(up, fwd, vector_up, 1 - math.exp(-dt * 3))
+		self.Vel = self.Vel - vector_up * (GRAVITY * dt)
+		pos = self:SafeMove(pos, pos + self.Vel * dt)
 	end
 
-	local facing = self.Vel:LengthSqr() > 100 and self.Vel:GetNormalized() or self.Facing
-	facing = LerpVector(math.min(1, dt * 8), self.Facing, facing)
-	facing = facing - up * facing:Dot(up)
-	if facing:LengthSqr() < 0.001 then facing = up:Angle():Up() end
-	facing:Normalize()
+	if not self.Falling and self.Vel:LengthSqr() > 100 then
+		fwd = LerpVector(1 - math.exp(-dt * 6), fwd, self.Vel:GetNormalized())
+	end
+	fwd = fwd - up * fwd:Dot(up)
+	if fwd:LengthSqr() < 1e-4 then fwd = up:Angle():Up() end
+	fwd:Normalize()
 
 	self.BodyUp = up
-	self.Facing = facing
+	self.Facing = fwd
 	self:SetPos(pos)
-	self:SetAngles(facing:AngleEx(up))
+	self:SetAngles(fwd:AngleEx(up))
 end
