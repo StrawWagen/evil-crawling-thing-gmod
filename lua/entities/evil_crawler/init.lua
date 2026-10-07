@@ -31,10 +31,7 @@ function ENT:Initialize()
 	if self:GetSeed() == 0 then self:SetSeed(math.random(1, 2 ^ 30)) end
 	local morph = EvilCrawler.Grow(self:GetSeed())
 	self.BodyHeight = morph.height
-	self.CoreRadius = morph.core.radius
-
-	local r = self.CoreRadius
-	self:SetCollisionBounds(Vector(-r, -r, -r), Vector(r, r, r))
+	self:SetCollisionBounds(Vector(-12, -12, -12), Vector(12, 12, 12))
 
 	self.BodyUp = self.SpawnUp or Vector(0, 0, 1)
 	self.Facing = self:GetForward()
@@ -100,7 +97,7 @@ function ENT:Crawl(dt)
 
 		local step = self.Vel * dt
 		if step:LengthSqr() > 0 then
-			local block = self:Trace(pos, pos + step + step:GetNormalized() * self.CoreRadius)
+			local block = self:Trace(pos, pos + step + step:GetNormalized() * 16)
 			if block.Hit then
 				step = Vector()
 				self.Vel = self.Vel - block.HitNormal * self.Vel:Dot(block.HitNormal)

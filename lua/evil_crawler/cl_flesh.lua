@@ -1,6 +1,6 @@
--- Procedural flesh: lit tubes for limbs and a rippling blob for the core,
--- rebuilt as dynamic meshes every frame. Lighting is sampled once per frame
--- as an ambient cube and applied per vertex, since the material is unlit.
+-- Procedural flesh: lit tubes for limbs, rebuilt as dynamic meshes every
+-- frame. Lighting is sampled once per frame as an ambient cube and applied
+-- per vertex, since the material is unlit.
 EvilCrawler = EvilCrawler or {}
 local Flesh = {}
 EvilCrawler.Flesh = Flesh
@@ -129,69 +129,6 @@ function Flesh.Tube(pts, sides, sub, radiusAt, colorAt, data)
 			Vert((j - 1) * sides + k2 + 1, u1, v0)
 			Vert(j * sides + k2 + 1, u1, v1)
 			Vert(j * sides + k + 1, u0, v1)
-		end
-	end
-	mesh.End()
-end
-
-local gdx, gdy, gdz = {}, {}, {}
-
--- A deformed sphere. radiusAt(dx, dy, dz, data) gives the radius along a
--- local unit direction; fwd/left/up place local space in the world. Dips
--- below `nominal` radius are shaded darker, like folds.
-function Flesh.Blob(center, fwd, left, up, rings, segs, radiusAt, nominal, cr, cg, cb, data)
-	local row = segs + 1
-	for i = 0, rings do
-		local lat = i / rings * math.pi
-		local sl, cl = math.sin(lat), math.cos(lat)
-		for j = 0, segs do
-			local lon = j / segs * math.pi * 2
-			local lx, ly, lz = sl * math.cos(lon), sl * math.sin(lon), cl
-			local r = radiusAt(lx, ly, lz, data)
-			local wx = fwd.x * lx + left.x * ly + up.x * lz
-			local wy = fwd.y * lx + left.y * ly + up.y * lz
-			local wz = fwd.z * lx + left.z * ly + up.z * lz
-			local idx = i * row + j + 1
-			vx[idx], vy[idx], vz[idx] = center.x + wx * r, center.y + wy * r, center.z + wz * r
-			gdx[idx], gdy[idx], gdz[idx] = wx, wy, wz
-			vr[idx] = r / nominal -- stash for the shading pass below
-		end
-	end
-
-	for i = 0, rings do
-		for j = 0, segs do
-			local idx = i * row + j + 1
-			local dx, dy, dz = gdx[idx], gdy[idx], gdz[idx]
-			local nx, ny, nz = dx, dy, dz
-			if i > 0 and i < rings then
-				local up_, dn = idx - row, idx + row
-				local jl = j == 0 and segs - 1 or j - 1
-				local jr = j == segs and 1 or j + 1
-				local lf, rt = i * row + jl + 1, i * row + jr + 1
-				local ax, ay, az = vx[dn] - vx[up_], vy[dn] - vy[up_], vz[dn] - vz[up_]
-				local bx, by, bz = vx[rt] - vx[lf], vy[rt] - vy[lf], vz[rt] - vz[lf]
-				local cx, cy, cz = ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx
-				local cl = math.sqrt(cx * cx + cy * cy + cz * cz)
-				if cl > 1e-6 then
-					if cx * dx + cy * dy + cz * dz < 0 then cl = -cl end
-					nx, ny, nz = cx / cl, cy / cl, cz / cl
-				end
-			end
-			local fold = math.Clamp(vr[idx], 0.8, 1.15)
-			local l = Bright(nx, ny, nz) * fold * fold * fold
-			vr[idx], vg[idx], vb[idx] = cr * l, cg * l, cb * l
-		end
-	end
-
-	mesh.Begin(MATERIAL_QUADS, rings * segs)
-	for i = 0, rings - 1 do
-		local v0, v1 = i / rings, (i + 1) / rings
-		for j = 0, segs - 1 do
-			local u0, u1 = j / segs * 2, (j + 1) / segs * 2
-			Vert(i * row + j + 1, u0, v0)
-			Vert(i * row + j + 2, u1, v0)
-			Vert((i + 1) * row + j + 2, u1, v1)
-			Vert((i + 1) * row + j + 1, u0, v1)
 		end
 	end
 	mesh.End()
