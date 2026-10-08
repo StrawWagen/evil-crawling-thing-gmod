@@ -6,7 +6,7 @@ local cv_debug = CreateClientConVar("evil_crawler_debug", "0", false, false, "Dr
 local LEAD_TIME = 0.18 -- feet aim this far ahead along the body's velocity
 local SNAP_GAP = 0.5 -- seconds without an update before limbs are re-planted from scratch
 local MAX_AIRBORNE = 0.4 -- share of legs allowed mid-step at once
-local FEEL_RANGE = 800
+local MOOD_AGITATION = { [0] = 0, [1] = 0.45, [2] = 1 } -- calm, on a scent, in contact
 local THREAT_ARC = 35 -- legs pointing within this many degrees of a player rear up at them
 local IK_ITERATIONS = 3
 local LOD_DISTANCE = 1500
@@ -97,17 +97,6 @@ function ENT:NeighboursPlanted(leg)
 	return true
 end
 
-function ENT:FeelTarget(pos)
-	local best, bestDist = nil, FEEL_RANGE * FEEL_RANGE
-	for _, ply in ipairs(player.GetAll()) do
-		if ply:Alive() then
-			local d = ply:EyePos():DistToSqr(pos)
-			if d < bestDist then best, bestDist = ply, d end
-		end
-	end
-	if best then return best:EyePos(), math.sqrt(bestDist) end
-end
-
 function ENT:UpdateLimbs()
 	local morph = self:Creature()
 	if not morph then return end
@@ -131,10 +120,11 @@ function ENT:UpdateLimbs()
 	self.LastPos = pos
 	local speed = self.SmoothVel:Length()
 
-	-- it works itself up the closer someone gets
-	local feel, feelDist = self:FeelTarget(pos)
-	local anger = feel and math.Clamp(1.3 - feelDist / FEEL_RANGE, 0, 1) or 0
-	self.Agitation = math.Approach(self.Agitation, anger, dt * 0.8)
+	-- worked up by what the server-side brain is doing
+	local prey = self:GetPrey()
+	local feel = IsValid(prey) and prey:EyePos()
+	if feel then self.LastFeel = feel end -- so reared legs ease back down after losing them
+	self.Agitation = math.Approach(self.Agitation, MOOD_AGITATION[self:GetMood()] or 0, dt * 0.8)
 	local agit = self.Agitation
 
 	-- the tangle keeps turning over on itself, whichever way it's heading
@@ -217,8 +207,8 @@ function ENT:UpdateLimbs()
 			local t = st.t
 			foot = LerpVector(Smooth(t), st.from, target) + up * (math.sin(t * math.pi) * limb.stepHeight)
 		end
-		if st.raise > 0 and feel then
-			local aim = root + (feel - root):GetNormalized() * (limb.length * 0.75) + up * (limb.length * 0.25)
+		if st.raise > 0 and self.LastFeel then
+			local aim = root + (self.LastFeel - root):GetNormalized() * (limb.length * 0.75) + up * (limb.length * 0.25)
 				+ Wobble(now * 3, limb.phase, limb.freq) * (limb.length * 0.04)
 			foot = LerpVector(Smooth(st.raise), foot, aim)
 		end

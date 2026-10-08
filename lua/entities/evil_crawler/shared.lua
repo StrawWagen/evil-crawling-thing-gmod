@@ -12,6 +12,8 @@ ENT.BodyHeight = 64 -- until the creature has grown and knows its own height
 
 function ENT:SetupDataTables()
 	self:NetworkVar("Int", 0, "Seed")
+	self:NetworkVar("Int", 1, "Mood") -- 0 calm, 1 on a scent, 2 in contact
+	self:NetworkVar("Entity", 0, "Prey")
 end
 
 function ENT:Trace(from, to)

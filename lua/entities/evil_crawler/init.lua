@@ -4,6 +4,7 @@ AddCSLuaFile("evil_crawler/sh_ik.lua")
 AddCSLuaFile("evil_crawler/sh_morph.lua")
 AddCSLuaFile("evil_crawler/cl_flesh.lua")
 include("shared.lua")
+include("sv_brain.lua")
 
 local cv_speed = CreateConVar("evil_crawler_speed", "220", FCVAR_ARCHIVE, "Top crawl speed")
 local cv_probes = CreateConVar("evil_crawler_debug_probes", "0", 0, "Draw surface probes (needs developer 1)")
@@ -89,16 +90,6 @@ function ENT:Think()
 	return true
 end
 
--- Prototype brain: crawl to wherever the spawner is looking.
-function ENT:GetTargetPos()
-	local ply = self.Master
-	if not IsValid(ply) then return end
-
-	local eye = ply:EyePos()
-	local tr = util.TraceLine({ start = eye, endpos = eye + ply:GetAimVector() * 4096, filter = { ply, self } })
-	if tr.Hit then return tr.HitPos end
-end
-
 -- Feels for nearby surfaces with a spread of rays and blends everything they
 -- touch, nearer hits weighing more. Near a corner both faces get felt, so the
 -- blended surface (and the body with it) rounds the corner instead of
@@ -168,20 +159,20 @@ function ENT:Crawl(dt)
 	local move = self.Vel:LengthSqr() > 100 and self.Vel:GetNormalized() or fwd
 	local normal, anchor, grip = self:SenseSurface(pos, fwd, up:Cross(fwd), up, move)
 
-	self.Falling = grip < (self.Falling and REGRIP or GRIP)
+	self.Falling = grip < (self.Falling and REGRIP or GRIP) or CurTime() < (self.LetGoUntil or 0)
 
 	if not self.Falling then
 		up, fwd = Turn(up, fwd, normal, 1 - math.exp(-dt * STICK_RATE))
 
 		local wish = Vector()
-		local target = self:GetTargetPos()
+		local target, pace = self:Steer()
 		if target then
 			local to = target - pos
-			local dist = to:Length()
 			local flat = to - up * to:Dot(up)
-			-- target is straight above or below: carry on until a wall turns it that way
-			if flat:Length() < dist * 0.3 then flat = fwd end
-			wish = flat:GetNormalized() * cv_speed:GetFloat() * math.Clamp((dist - h) / (h * 3), 0, 1)
+			local along = flat:Length()
+			-- puppeted at a point straight overhead: carry on until a wall turns it that way
+			if self.Puppeting and along < to:Length() * 0.3 then flat, along = fwd, h * 3 end
+			wish = flat:GetNormalized() * cv_speed:GetFloat() * pace * math.Clamp((along - 24) / (h * 1.5), 0, 1)
 		end
 
 		self.Vel = LerpVector(1 - math.exp(-dt * 6), self.Vel, wish)
