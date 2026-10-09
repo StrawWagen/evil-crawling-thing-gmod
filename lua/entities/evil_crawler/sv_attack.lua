@@ -67,27 +67,9 @@ function ENT:Release()
 	self.Lair = nil
 end
 
--- A ragdoll of the NPC in exactly its current pose, so the kill flows
--- straight into a limp body. Nil if the model has no ragdoll.
-local function MakeCorpse(npc)
-	local rag = ents.Create("prop_ragdoll")
-	if not IsValid(rag) then return end
-	rag:SetModel(npc:GetModel())
-	rag:SetPos(npc:GetPos())
-	rag:SetAngles(npc:GetAngles())
-	rag:SetSkin(npc:GetSkin())
-	for _, group in ipairs(npc:GetBodyGroups()) do
-		rag:SetBodygroup(group.id, npc:GetBodygroup(group.id))
-	end
-	rag:Spawn()
-	rag:Activate()
-
-	if rag:GetPhysicsObjectCount() == 0 then
-		rag:Remove()
-		return
-	end
-
-	npc:SetupBones()
+-- Moves a ragdoll's bones into the NPC's current pose, so the kill flows
+-- straight into a limp body.
+local function PoseCorpse(rag, npc)
 	for i = 0, rag:GetPhysicsObjectCount() - 1 do
 		local phys = rag:GetPhysicsObjectNum(i)
 		local m = npc:GetBoneMatrix(rag:TranslatePhysBoneToBone(i))
@@ -102,6 +84,29 @@ local function MakeCorpse(npc)
 	local head = rag:LookupBone("ValveBiped.Bip01_Head1")
 	local phys = head and rag:GetPhysicsObjectNum(rag:TranslateBoneToPhysBone(head))
 	if IsValid(phys) then phys:AddAngleVelocity(Vector(0, 0, 2000)) end
+end
+
+-- A ragdoll standing in for the NPC, or nil if that can't be done.
+local function MakeCorpse(npc)
+	local rag = ents.Create("prop_ragdoll")
+	if not IsValid(rag) then return end
+	rag:SetModel(npc:GetModel())
+	rag:SetPos(npc:GetPos())
+	rag:SetAngles(npc:GetAngles())
+	rag:SetSkin(npc:GetSkin())
+	for _, group in ipairs(npc:GetBodyGroups()) do
+		rag:SetBodygroup(group.id, npc:GetBodygroup(group.id))
+	end
+	rag:Spawn()
+	rag:Activate()
+
+	local ok, err = pcall(PoseCorpse, rag, npc)
+	if not ok or rag:GetPhysicsObjectCount() == 0 then
+		if not ok then ErrorNoHalt("[evil_crawler] couldn't pose corpse: ", err, "
+") end
+		rag:Remove()
+		return
+	end
 
 	rag:SetCollisionGroup(COLLISION_GROUP_WEAPON)
 	return rag
@@ -120,7 +125,7 @@ function ENT:Snap(npc)
 
 	local corpse = MakeCorpse(npc)
 	if not IsValid(corpse) then
-		-- no ragdoll for this model: kill it outright and leave it
+		-- no ragdoll to be had: kill it outright and leave it
 		local dmg = DamageInfo()
 		dmg:SetDamage(npc:Health() + 1000)
 		dmg:SetDamageType(DMG_CRUSH)
