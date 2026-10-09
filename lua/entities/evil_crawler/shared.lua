@@ -28,7 +28,8 @@ end
 
 function ENT:Trace(from, to)
 	self.TraceFilter = self.TraceFilter or function(e)
-		return e ~= self and not e:IsPlayer() and not e:IsNPC()
+		-- ragdolls too, or it would try to walk on the body it's carrying
+		return e ~= self and not e:IsPlayer() and not e:IsNPC() and e:GetClass() ~= "prop_ragdoll"
 	end
 	return util.TraceLine({ start = from, endpos = to, filter = self.TraceFilter, mask = MASK_SOLID })
 end
