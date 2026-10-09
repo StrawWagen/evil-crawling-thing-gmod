@@ -1,8 +1,10 @@
--- What the crawler wants. It has no eyes. It knows players three ways:
+-- What the crawler wants. It has no eyes. It knows players and NPCs three ways:
 --   touch   anyone close enough, whatever they're doing
 --   tremor  players running on the ground with nothing solid in between
---   scent   the trails every player leaves (sv_scent.lua), followed toward
+--   scent   the trails everyone leaves (sv_scent.lua), followed toward
 --           fresher scent
+-- Hungry, it goes for NPCs it can kill (sv_attack.lua) over players, which it
+-- only stalks.
 -- Each thought sets self.Goal (a point to crawl toward) and self.Pace (a
 -- share of top speed); Crawl does the moving.
 
@@ -24,15 +26,17 @@ local SEARCH_TIME = 8
 local SEARCH_SPREAD = 300
 local STUCK_TIME = 2.5
 
-local PACE = { roam = 0.45, search = 0.6, track = 0.85, hunt = 1.25 }
-local MOOD = { roam = 0, search = 1, track = 1, hunt = 2 }
+local PACE = { roam = 0.45, search = 0.6, track = 0.85, hunt = 1.25, constrict = 0, drag = 0.7, feed = 0 }
+local MOOD = { roam = 0, search = 1, track = 1, hunt = 2, constrict = 2, drag = 1, feed = 1 }
 local STATE_COLOR = { roam = Color(120, 120, 120), search = Color(255, 200, 0), track = Color(255, 120, 0), hunt = Color(255, 0, 0) }
 
-local function Perceivable(ply)
-	return ply:Alive()
-		and ply:GetMoveType() ~= MOVETYPE_NOCLIP
-		and ply:GetObserverMode() == OBS_MODE_NONE
-		and not ply:IsFlagSet(FL_NOTARGET)
+local function Perceivable(ent)
+	if ent:IsFlagSet(FL_NOTARGET) then return false end
+	if ent:IsNPC() then return ent:Health() > 0 and not ent.EvilCrawlerVictim end
+	return ent:Alive()
+		and ent:GetMoveType() ~= MOVETYPE_NOCLIP
+		and ent:GetObserverMode() == OBS_MODE_NONE
+		and not (ai_ignoreplayers and ai_ignoreplayers:GetBool())
 end
 
 -- Distance to a point measured along the surface the body is on, so a
@@ -46,23 +50,37 @@ function ENT:Reached(point)
 	return self:SurfaceDistance(point) < REACHED
 end
 
--- The nearest player it can feel directly, by touch or tremor.
-function ENT:Sense()
-	if ai_ignoreplayers and ai_ignoreplayers:GetBool() then return end
+function ENT:Feels(ent, pos)
+	if not Perceivable(ent) then return false end
+	local d = ent:WorldSpaceCenter():Distance(pos)
+	if d < TOUCH_RANGE then return true, d end
+	if d < TREMOR_RANGE and ent:IsOnGround() and ent:GetVelocity():Length() > TREMOR_SPEED then
+		return not self:Trace(pos, ent:WorldSpaceCenter()).Hit, d
+	end
+	return false
+end
 
+-- What it can feel directly, by touch or tremor: the nearest NPC it could
+-- eat if it's hungry, otherwise the nearest player.
+function ENT:Sense()
 	local pos = self:GetPos()
-	local best, bestDist
-	for _, ply in ipairs(player.GetAll()) do
-		if Perceivable(ply) then
-			local d = ply:WorldSpaceCenter():Distance(pos)
-			local felt = d < TOUCH_RANGE
-			if not felt and d < TREMOR_RANGE and ply:IsOnGround() and ply:GetVelocity():Length() > TREMOR_SPEED then
-				felt = not self:Trace(pos, ply:WorldSpaceCenter()).Hit
+	local meal, mealDist, person, personDist
+
+	if self:IsHungry() then
+		for npc in pairs(Scent.npcs) do
+			if IsValid(npc) and self:IsEdible(npc) then
+				local felt, d = self:Feels(npc, pos)
+				if felt and (not meal or d < mealDist) then meal, mealDist = npc, d end
 			end
-			if felt and (not best or d < bestDist) then best, bestDist = ply, d end
 		end
 	end
-	return best
+	if meal then return meal end
+
+	for _, ply in ipairs(player.GetAll()) do
+		local felt, d = self:Feels(ply, pos)
+		if felt and (not person or d < personDist) then person, personDist = ply, d end
+	end
+	return person
 end
 
 -- Walks a trail toward fresher scent, past every node already reached or
@@ -95,10 +113,22 @@ function ENT:Ponder()
 	local now = CurTime()
 	local pos = self:GetPos()
 
+	if self:GetAct() ~= EvilCrawler.ACT_NONE then
+		self:PonderAct(now)
+		return
+	end
+
 	self.Puppeting = cv_puppet:GetBool()
 	if self.Puppeting then
 		self.Goal = self:PuppetGoal()
 		self.Pace = 1
+		-- steer it into an NPC to test the kill
+		for npc in pairs(Scent.npcs) do
+			if IsValid(npc) and self:CanAttack(npc) then
+				self:StartConstrict(npc)
+				return
+			end
+		end
 		return
 	end
 
@@ -106,6 +136,10 @@ function ENT:Ponder()
 	local prey = self:Sense()
 	self:SetPrey(prey or NULL)
 	if prey then
+		if self:CanAttack(prey) then
+			self:StartConstrict(prey)
+			return
+		end
 		self:SetState("hunt")
 		self.Goal = prey:GetPos()
 		self.LastKnown = prey:GetPos()

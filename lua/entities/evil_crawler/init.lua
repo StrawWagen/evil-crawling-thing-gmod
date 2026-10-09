@@ -5,6 +5,7 @@ AddCSLuaFile("evil_crawler/sh_morph.lua")
 AddCSLuaFile("evil_crawler/cl_flesh.lua")
 include("shared.lua")
 include("sv_brain.lua")
+include("sv_attack.lua")
 
 local cv_speed = CreateConVar("evil_crawler_speed", "220", FCVAR_ARCHIVE, "Top crawl speed")
 local cv_probes = CreateConVar("evil_crawler_debug_probes", "0", 0, "Draw surface probes (needs developer 1)")
@@ -86,6 +87,7 @@ end
 
 function ENT:Think()
 	self:Crawl(FrameTime())
+	self:UpdateAct(CurTime())
 	self:NextThink(CurTime())
 	return true
 end

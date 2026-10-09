@@ -53,7 +53,7 @@ local function Trig(sides)
 	return t
 end
 
-local function CatmullRom(p0, p1, p2, p3, t)
+function Flesh.CatmullRom(p0, p1, p2, p3, t)
 	local t2 = t * t
 	local t3 = t2 * t
 	return (p1 * 2 + (p2 - p0) * t + (p0 * 2 - p1 * 5 + p2 * 4 - p3) * t2 + (p1 * 3 - p0 - p2 * 3 + p3) * t3) * 0.5
@@ -73,7 +73,7 @@ function Flesh.Tube(pts, sides, sub, radiusAt, colorAt, data)
 		local p0, p1, p2, p3 = pts[math.max(i - 1, 1)], pts[i], pts[i + 1], pts[math.min(i + 2, n)]
 		for s = 0, sub - 1 do
 			local t = s / sub
-			local p = CatmullRom(p0, p1, p2, p3, t)
+			local p = Flesh.CatmullRom(p0, p1, p2, p3, t)
 			count = count + 1
 			px[count], py[count], pz[count] = p.x, p.y, p.z
 			pf[count] = (i - 1 + t) / (n - 1)

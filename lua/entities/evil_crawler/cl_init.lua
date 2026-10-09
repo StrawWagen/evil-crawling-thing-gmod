@@ -11,6 +11,13 @@ local THREAT_ARC = 35 -- legs pointing within this many degrees of a player rear
 local IK_ITERATIONS = 3
 local LOD_DISTANCE = 1500
 
+local ACT_NONE, ACT_CONSTRICT, ACT_DRAG, ACT_FEED =
+	EvilCrawler.ACT_NONE, EvilCrawler.ACT_CONSTRICT, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
+local WRAP_TIME, SNAP_TIME = EvilCrawler.WRAP_TIME, EvilCrawler.SNAP_TIME
+local ROLE_COUNT = { [ACT_CONSTRICT] = 5, [ACT_DRAG] = 2, [ACT_FEED] = 4 } -- legs put to work per act
+local COIL_POINTS = 26 -- a coiled leg is drawn through this many points
+local REACH_POINTS = 8 -- of which this many reach from the root to the victim
+
 local FOOT_SOUNDS = {
 	"npc/antlion/foot1.wav",
 	"npc/antlion/foot2.wav",
@@ -25,6 +32,7 @@ local DEBUG_DANGLE = Color(255, 160, 0)
 
 local Flesh = EvilCrawler.Flesh
 local SolveChain = EvilCrawler.SolveChain
+local CatmullRom = Flesh.CatmullRom
 
 function ENT:Initialize()
 	self:SetRenderBounds(Vector(-400, -400, -400), Vector(400, 400, 400))
@@ -69,6 +77,80 @@ local function Pose(st, limb, root, target, bow, t, shake)
 		pts[i] = LerpVector(f, root, target) + (bow + noise) * arch
 	end
 	SolveChain(pts, limb.lengths, root, target, IK_ITERATIONS)
+end
+
+-- Smooth curve through a joint chain, resampled to m points.
+local function Resample(pts, m, out)
+	local n = #pts
+	for i = 1, m do
+		local u = (i - 1) / (m - 1) * (n - 1)
+		local seg = math.min(math.floor(u), n - 2)
+		local s = seg + 1
+		out[i] = CatmullRom(pts[math.max(s - 1, 1)], pts[s], pts[s + 1], pts[math.min(s + 2, n)], u - seg)
+	end
+	return out
+end
+
+local function Chest(ent)
+	local bone = ent:LookupBone("ValveBiped.Bip01_Spine2")
+	return bone and ent:GetBonePosition(bone) or ent:WorldSpaceCenter()
+end
+
+-- Picks the legs nearest the victim for the job at hand.
+function ENT:AssignRoles(morph, act, victim, pos, fwd, left)
+	local roles = {}
+	if act == ACT_NONE or not IsValid(victim) then return roles end
+
+	local d = victim:WorldSpaceCenter() - pos
+	local yaw = math.deg(math.atan2(d:Dot(left), d:Dot(fwd)))
+	local order = table.Copy(morph.legs)
+	table.sort(order, function(a, b)
+		return math.abs(math.AngleDifference(a.angle, yaw)) < math.abs(math.AngleDifference(b.angle, yaw))
+	end)
+
+	local count = math.min(ROLE_COUNT[act], #order - 3)
+	for k = 1, count do
+		roles[order[k]] = { index = k, count = count, bone = math.random(0, math.max(0, victim:GetBoneCount() - 1)) }
+	end
+	return roles
+end
+
+-- A leg wrapped round the victim: an arch from the root to the victim's
+-- side, then a helix climbing the body. Each leg takes its own band of the
+-- body, and the last one ends at the neck. The coil climbs over WRAP_TIME,
+-- then cinches tighter and trembles until the snap.
+local function Coil(st, leg, role, root, victim, t, now)
+	local base = victim:GetPos()
+	local mins, maxs = victim:OBBMins(), victim:OBBMaxs()
+	local height = maxs.z
+	local climb = math.Clamp(t / WRAP_TIME, 0, 1)
+	local squeeze = math.Clamp((t - WRAP_TIME) / (SNAP_TIME - WRAP_TIME), 0, 1)
+	local r = math.max(maxs.x - mins.x, maxs.y - mins.y) * 0.4 * (1 - 0.3 * squeeze) + leg.width * 0.6
+
+	local k, count = role.index, role.count
+	local zFrom = height * (0.12 + 0.55 * (k - 1) / count)
+	local zTo = k == count and height * 0.86 or math.min(height * 0.9, zFrom + height * 0.4)
+	local turns = 1.6 + (leg.phase % 1) * 0.8
+	local spin = k % 2 == 0 and 1 or -1
+	local theta0 = k / count * math.pi * 2 + leg.phase
+
+	local entry = base + Vector(math.cos(theta0) * r, math.sin(theta0) * r, zFrom)
+	local mid = (root + entry) * 0.5 + vector_up * (root:Distance(entry) * 0.3)
+
+	local pts = st.coil or {}
+	st.coil = pts
+	for i = 1, REACH_POINTS do
+		local u = (i - 1) / REACH_POINTS
+		pts[i] = root * ((1 - u) ^ 2) + mid * (2 * (1 - u) * u) + entry * (u * u)
+	end
+
+	local helix = COIL_POINTS - REACH_POINTS
+	for i = 0, helix - 1 do
+		local u = i / (helix - 1) * climb
+		local theta = theta0 + spin * u * turns * math.pi * 2
+		local rr = r + math.sin(now * 40 + i) * squeeze * 1.5
+		pts[REACH_POINTS + 1 + i] = base + Vector(math.cos(theta) * rr, math.sin(theta) * rr, zFrom + (zTo - zFrom) * u)
+	end
 end
 
 -- Where a foot should land: whatever is between root and rest spot (a wall
@@ -127,11 +209,21 @@ function ENT:UpdateLimbs()
 	self.Agitation = math.Approach(self.Agitation, MOOD_AGITATION[self:GetMood()] or 0, dt * 0.8)
 	local agit = self.Agitation
 
-	-- the tangle keeps turning over on itself, whichever way it's heading
-	self.Churn = self.Churn + dt * morph.churn * (1 + math.sin(now * 0.3 + morph.phase)) * (1 + 2 * agit)
+	local act, victim, actStart = self:GetAct(), self:GetVictim(), self:GetActStart()
+
+	-- the tangle keeps turning over on itself, whichever way it's heading,
+	-- except while its legs are busy with a victim
+	if act == ACT_NONE then
+		self.Churn = self.Churn + dt * morph.churn * (1 + math.sin(now * 0.3 + morph.phase)) * (1 + 2 * agit)
+	end
 	ang:RotateAroundAxis(ang:Up(), self.Churn)
 
 	local fwd, left, up = ang:Forward(), -ang:Right(), ang:Up()
+
+	if self.RolesAct ~= act or self.RolesStart ~= actStart then
+		self.RolesAct, self.RolesStart = act, actStart
+		self.Roles = self:AssignRoles(morph, act, victim, pos, fwd, left)
+	end
 	local function toWorld(v) return pos + fwd * v.x + left * v.y + up * v.z end
 
 	local lead = self.SmoothVel * LEAD_TIME
@@ -154,7 +246,7 @@ function ENT:UpdateLimbs()
 	for _, limb in ipairs(morph.legs) do
 		local st = self.LimbState[limb]
 		if not st then
-			st = { points = {}, twitch = Vector(), raise = 0 }
+			st = { points = {}, twitch = Vector(), raise = 0, wrap = 0 }
 			self.LimbState[limb] = st
 		end
 
@@ -212,7 +304,24 @@ function ENT:UpdateLimbs()
 				+ Wobble(now * 3, limb.phase, limb.freq) * (limb.length * 0.04)
 			foot = LerpVector(Smooth(st.raise), foot, aim)
 		end
+
+		-- legs put to work: holding the body, or picking at it
+		local role = self.Roles[limb]
+		if role and IsValid(victim) then
+			if act == ACT_DRAG then
+				foot = Chest(victim)
+			elseif act == ACT_FEED then
+				local meat = victim:GetBonePosition(role.bone) or victim:WorldSpaceCenter()
+				local lift = 0.5 + 0.5 * math.cos((now * (1.2 + role.index * 0.37) + role.index) * math.pi * 2)
+				foot = meat + (root - meat):GetNormalized() * (lift * 35)
+			end
+		end
+
 		Pose(st, limb, root, foot, up * (limb.length * 0.35), now, shake)
+
+		local coiling = role and act == ACT_CONSTRICT and IsValid(victim)
+		if coiling then Coil(st, limb, role, root, victim, now - actStart, now) end
+		st.wrap = math.Approach(st.wrap, coiling and 1 or 0, dt * (coiling and 3.5 or 2.5))
 	end
 end
 
@@ -245,7 +354,17 @@ function ENT:Draw()
 	render.SetMaterial(Flesh.Material)
 
 	for _, limb in ipairs(morph.legs) do
-		Flesh.Tube(self.LimbState[limb].points, sides, sub, LimbRadius, LimbColor, limb)
+		local st = self.LimbState[limb]
+		if st.wrap > 0 and st.coil then
+			-- blend between the walking pose and the coil
+			local pts = Resample(st.points, COIL_POINTS, st.display or {})
+			st.display = pts
+			local b = Smooth(st.wrap)
+			for i = 1, COIL_POINTS do pts[i] = LerpVector(b, pts[i], st.coil[i]) end
+			Flesh.Tube(pts, sides, 1, LimbRadius, LimbColor, limb)
+		else
+			Flesh.Tube(st.points, sides, sub, LimbRadius, LimbColor, limb)
+		end
 	end
 
 	if cv_debug:GetBool() then

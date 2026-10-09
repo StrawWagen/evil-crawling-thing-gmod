@@ -1,4 +1,4 @@
--- Every player leaves a scent trail as they move: a chain of nodes, each one
+-- Every player and NPC leaves a scent trail as they move: a chain of nodes, each one
 -- fading over time. Crawlers don't know where players are; they smell where
 -- players have been and follow the chain toward fresher scent. One shared
 -- scent map serves every crawler on the server.
@@ -19,7 +19,8 @@ local cv_debug = CreateConVar("evil_crawler_debug_scent", "0", 0, "Draw scent tr
 
 Scent.cells = Scent.cells or {} -- spatial hash: cell key -> set of nodes
 Scent.trails = Scent.trails or {} -- set of live trails
-Scent.active = Scent.active or {} -- player -> the trail they're currently laying
+Scent.active = Scent.active or {} -- player or NPC -> the trail they're currently laying
+Scent.npcs = Scent.npcs or {} -- every live NPC, so nothing has to scan all entities
 
 local function Key(ix, iy, iz)
 	return (ix + 512) * 1048576 + (iy + 512) * 1024 + (iz + 512)
@@ -56,7 +57,9 @@ end
 -- Sprinting and bleeding leave a heavy trail, crouching a faint one.
 local function Strength(ply, now)
 	local s = 1
-	if ply:Crouching() then
+	if not ply:IsPlayer() then
+		s = 1
+	elseif ply:Crouching() then
 		s = 0.35
 	elseif ply:KeyDown(IN_SPEED) and ply:GetVelocity():Length2D() > ply:GetWalkSpeed() then
 		s = 1.6
@@ -69,7 +72,11 @@ local function Strength(ply, now)
 	return s
 end
 
-local function LeavesScent(ply)
+local function LeavesScent(ent)
+	if ent:IsNPC() then
+		return ent:Health() > 0 and not ent.EvilCrawlerVictim and ent:GetMoveType() == MOVETYPE_STEP
+	end
+	local ply = ent
 	return ply:Alive()
 		and not ply:InVehicle()
 		and ply:GetMoveType() ~= MOVETYPE_NOCLIP
@@ -158,17 +165,36 @@ end
 
 timer.Create("EvilCrawlerScent", DROP_INTERVAL, 0, function()
 	local now = CurTime()
-	for _, ply in ipairs(player.GetAll()) do
-		if LeavesScent(ply) then
-			Drop(ply, now)
+	local function visit(ent)
+		if LeavesScent(ent) then
+			Drop(ent, now)
 		else
-			Scent.active[ply] = nil -- whatever they do next starts a new trail
+			Scent.active[ent] = nil -- whatever they do next starts a new trail
 		end
+	end
+	for _, ply in ipairs(player.GetAll()) do visit(ply) end
+	for npc in pairs(Scent.npcs) do
+		if IsValid(npc) then visit(npc) else Scent.npcs[npc] = nil end
 	end
 	Prune(now)
 	if cv_debug:GetBool() then DrawDebug(now) end
 end)
 
 hook.Add("EntityTakeDamage", "EvilCrawlerScent", function(ent)
-	if ent:IsPlayer() then ent.EvilCrawlerHurt = CurTime() end
+	if ent:IsPlayer() or ent:IsNPC() then ent.EvilCrawlerHurt = CurTime() end
 end)
+
+hook.Add("OnEntityCreated", "EvilCrawlerScent", function(ent)
+	timer.Simple(0, function()
+		if IsValid(ent) and ent:IsNPC() then Scent.npcs[ent] = true end
+	end)
+end)
+
+hook.Add("EntityRemoved", "EvilCrawlerScent", function(ent)
+	Scent.npcs[ent] = nil
+	Scent.active[ent] = nil
+end)
+
+for _, ent in ipairs(ents.GetAll()) do
+	if ent:IsNPC() then Scent.npcs[ent] = true end
+end
