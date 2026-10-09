@@ -102,8 +102,7 @@ local function MakeCorpse(npc)
 
 	local ok, err = pcall(PoseCorpse, rag, npc)
 	if not ok or rag:GetPhysicsObjectCount() == 0 then
-		if not ok then ErrorNoHalt("[evil_crawler] couldn't pose corpse: ", err, "
-") end
+		if not ok then ErrorNoHalt("[evil_crawler] couldn't pose corpse: " .. tostring(err) .. "\n") end
 		rag:Remove()
 		return
 	end
