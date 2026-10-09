@@ -6,6 +6,7 @@
 		"*.md",
 		"*.blend",
 		"*.blend1",
-		".git*"
+		".git*",
+		"tools/*"
 	]
 }
