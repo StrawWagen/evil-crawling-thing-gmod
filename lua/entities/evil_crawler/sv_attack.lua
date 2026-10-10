@@ -4,7 +4,8 @@
 -- lets go: it drags the body somewhere out of sight, hauls it up into the
 -- tangle the legs grow from, and holds it there, turning it over, while other
 -- legs stab into it and tear pieces away for the small mouths along them to
--- swallow. Too long finding somewhere quiet and they come to on the way.
+-- swallow, a limb at a time, until there's nothing left but the torso. Too
+-- long finding somewhere quiet and they come to on the way.
 -- Players are never attacked.
 
 local Victim = EvilCrawler.Victim
@@ -21,12 +22,15 @@ local TRAIL_RATE = 1.5 -- how fast a carried body swings round behind it
 local FEEDERS = EvilCrawler.FEEDERS
 local BITE_IN, BITE_RIP = EvilCrawler.BITE_IN, EvilCrawler.BITE_RIP
 local BiteCycle, BiteBone = EvilCrawler.BiteCycle, EvilCrawler.BiteBone
+local PARTS, CurrentPart = EvilCrawler.PARTS, EvilCrawler.CurrentPart
+local RIPS_PER_PART = 4 -- tears it takes to strip a part away
+local TORSO_TIME = 6 -- picks at what's left this long before it's done
+local FEED_CAP = 60 -- gives up eating after this long, whatever's left
 local STAB_FORCE = 120
 local RIP_FORCE = 350
-local DRAINED = 30 -- rips until the body is as dark as it gets
+local DRAINED = 40 -- rips until the body is as dark as it gets
 local TURN_SPEED = 35 -- degrees a second it turns the body over while eating
 local DRAG_TIME = 15 -- gives up looking for somewhere private after this long and eats where it is
-local FEED_TIME = 15
 local SATED_TIME = 90
 local LAIR_TRIES = 12
 local DISTURB_RANGE = 330
@@ -49,6 +53,11 @@ local RIP_SOUNDS = {
 	"physics/flesh/flesh_squishy_impact_hard1.wav",
 	"physics/flesh/flesh_squishy_impact_hard3.wav",
 	"physics/flesh/flesh_squishy_impact_hard4.wav",
+}
+local CONSUME_SOUNDS = {
+	"physics/body/body_medium_break2.wav",
+	"physics/body/body_medium_break3.wav",
+	"physics/body/body_medium_break4.wav",
 }
 local GULP_SOUNDS = { "npc/barnacle/barnacle_gulp1.wav", "npc/barnacle/barnacle_gulp2.wav" }
 local SIDES = { Vector(1, 0, 0), Vector(-1, 0, 0), Vector(0, 1, 0), Vector(0, -1, 0) }
@@ -94,6 +103,7 @@ function ENT:Release()
 	self.Lair = nil
 	self.CarryDir = nil
 	self.BiteStage = nil
+	self.BitePart = nil
 end
 
 local function Smooth(t)
@@ -156,6 +166,7 @@ function ENT:StartDrag(now)
 	self.Lair = self:FindLair()
 	self.ActDeadline = now + DRAG_TIME
 	self.BiteStage = nil
+	self.BitePart = nil
 end
 
 local function NearestPlayer(spot)
@@ -291,27 +302,75 @@ function ENT:Rip(phys, corpse)
 	end)
 end
 
+-- A part and everything below it, stripped down to nothing. Its physics
+-- stays on to hold the ragdoll together, but nothing can touch it.
+local function Strip(corpse, bone)
+	corpse:ManipulateBoneScale(bone, Vector(0, 0, 0))
+	local index = corpse:TranslateBoneToPhysBone(bone)
+	if index >= 0 and corpse:TranslatePhysBoneToBone(index) == bone then
+		local phys = corpse:GetPhysicsObjectNum(index)
+		if IsValid(phys) then phys:EnableCollisions(false) end
+	end
+	for _, child in ipairs(corpse:GetChildBones(bone)) do Strip(corpse, child) end
+end
+
+-- The last of a part goes: a burst of blood from the stump it leaves.
+function ENT:Consume(corpse, part, now)
+	local bone = corpse:LookupBone(PARTS[part].root)
+	if not bone then return end
+	local p = corpse:GetBonePosition(bone) or corpse:WorldSpaceCenter()
+	Strip(corpse, bone)
+	corpse:SetNWInt(EvilCrawler.EATEN_VAR, bit.bor(corpse:GetNWInt(EvilCrawler.EATEN_VAR, 0), bit.lshift(1, part - 1)))
+
+	local fx = EffectData()
+	fx:SetOrigin(p)
+	fx:SetNormal(self.BodyUp)
+	fx:SetScale(10)
+	fx:SetColor(BLOOD_COLOR_RED)
+	fx:SetFlags(7)
+	util.Effect("bloodspray", fx)
+	for _ = 1, 3 do util.Decal("Blood", p, p - self.BodyUp * 200 + VectorRand() * 80, corpse) end
+	sound.Play(CONSUME_SOUNDS[math.random(#CONSUME_SOUNDS)], p, 80, math.random(85, 100))
+
+	if not CurrentPart(corpse, self:GetSeed()) then
+		self.FeedUntil = math.min(self.FeedUntil, now + TORSO_TIME)
+	end
+	Victim.Maimed(corpse, PARTS[part].root, self)
+end
+
 -- Once the body is hauled in: runs the bite schedule each feeding leg is
 -- drawn following, and slowly turns the body over to get at all of it.
+-- Every leg works the same part until it's gone.
 function ENT:Feed(corpse, now)
 	local t = now - self:GetActStart() - PULL_TIME
 	if t < 0 then return end
 
 	local seed = self:GetSeed()
 	self.BiteStage = self.BiteStage or {}
+	self.BitePart = self.BitePart or {}
 	for k = 1, FEEDERS do
 		local n, u = BiteCycle(k, t)
 		local stage = n * 3 + (u < BITE_IN and 0 or u < BITE_RIP and 1 or 2)
 		local last = self.BiteStage[k]
 		self.BiteStage[k] = stage
 		if last and stage ~= last and stage % 3 ~= 0 then
-			local phys = BitePhys(corpse, BiteBone(seed, k, n))
+			-- which part this bite is on is settled when the leg goes in
+			if stage % 3 == 1 then self.BitePart[k] = CurrentPart(corpse, seed) or false end
+			local part = self.BitePart[k] or nil
+			local phys = BitePhys(corpse, BiteBone(seed, k, n, part))
 			if phys then
 				if stage % 3 == 1 then
 					self:Stab(phys)
 					Victim.Pierced(corpse)
 				else
 					self:Rip(phys, corpse)
+					if part and part == CurrentPart(corpse, seed) then
+						corpse.EvilCrawlerRips = (corpse.EvilCrawlerRips or 0) + 1
+						if corpse.EvilCrawlerRips >= RIPS_PER_PART then
+							corpse.EvilCrawlerRips = 0
+							self:Consume(corpse, part, now)
+						end
+					end
 				end
 			end
 		end
@@ -336,7 +395,10 @@ function ENT:PonderAct(now)
 			self:SetAct(ACT_FEED)
 			self:SetActStart(now)
 			self:SetState("feed")
-			self.FeedUntil = now + PULL_TIME + FEED_TIME
+			self.FeedUntil = now + PULL_TIME + FEED_CAP
+			if not CurrentPart(self:GetVictim(), self:GetSeed()) then
+				self.FeedUntil = now + PULL_TIME + TORSO_TIME -- nothing left worth the trouble
+			end
 		end
 	elseif act == ACT_FEED then
 		self.Goal = nil

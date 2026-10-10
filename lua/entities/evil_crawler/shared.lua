@@ -11,19 +11,62 @@ EvilCrawler.WRAP_TIME = 0.15 -- and coils round the body as it drops
 EvilCrawler.PULL_TIME = 2 -- somewhere quiet, it hauls the body up into the tangle before eating
 
 -- Feeding: each feeding leg rears over a part of the body, stabs into it,
--- worries at it, then rips out. The schedule is fixed by the creature's seed,
+-- worries at it, then rips out. The timing is fixed by the creature's seed,
 -- so the server's gore and every client's legs land together.
 EvilCrawler.FEEDERS = 4
 EvilCrawler.BITE_JAB = 0.5 -- share of a cycle spent rearing over the next bite
 EvilCrawler.BITE_IN = 0.56 -- the stab lands
 EvilCrawler.BITE_RIP = 0.82 -- and tears back out
 EvilCrawler.LUMP_TIME = 1.2 -- what it tore off takes this long to travel up the leg
-EvilCrawler.BITE_BONES = {
-	"ValveBiped.Bip01_Head1", "ValveBiped.Bip01_Spine2", "ValveBiped.Bip01_L_Thigh",
-	"ValveBiped.Bip01_R_UpperArm", "ValveBiped.Bip01_Spine", "ValveBiped.Bip01_R_Calf",
-	"ValveBiped.Bip01_L_Forearm", "ValveBiped.Bip01_R_Thigh", "ValveBiped.Bip01_L_UpperArm",
-	"ValveBiped.Bip01_L_Calf", "ValveBiped.Bip01_R_Forearm",
+
+-- What it eats, a limb at a time from the hand or foot inward, head last,
+-- until only the torso is left. Each part goes with everything below it.
+-- `size` scales the stump left behind.
+local B = "ValveBiped.Bip01_"
+EvilCrawler.PARTS = {
+	{ root = B .. "L_Forearm", bites = { B .. "L_Hand", B .. "L_Forearm" }, size = 2.2 },
+	{ root = B .. "L_UpperArm", bites = { B .. "L_UpperArm" }, size = 2.8 },
+	{ root = B .. "R_Forearm", bites = { B .. "R_Hand", B .. "R_Forearm" }, size = 2.2 },
+	{ root = B .. "R_UpperArm", bites = { B .. "R_UpperArm" }, size = 2.8 },
+	{ root = B .. "L_Calf", bites = { B .. "L_Foot", B .. "L_Calf" }, size = 3 },
+	{ root = B .. "L_Thigh", bites = { B .. "L_Thigh" }, size = 3.8 },
+	{ root = B .. "R_Calf", bites = { B .. "R_Foot", B .. "R_Calf" }, size = 3 },
+	{ root = B .. "R_Thigh", bites = { B .. "R_Thigh" }, size = 3.8 },
+	{ root = B .. "Head1", bites = { B .. "Head1", B .. "Neck1" }, size = 3.2 },
 }
+EvilCrawler.TORSO_BITES = { B .. "Spine2", B .. "Spine1", B .. "Spine", B .. "Pelvis" }
+EvilCrawler.EATEN_VAR = "EvilCrawlerEaten" -- networked on the corpse: bit i set once part i is gone
+
+local LIMBS = { { 1, 2 }, { 3, 4 }, { 5, 6 }, { 7, 8 } }
+local orders = {}
+
+-- The order a creature eats in: its limbs in an order of its own, each from
+-- the end inward, then the head.
+function EvilCrawler.EatOrder(seed)
+	local order = orders[seed]
+	if order then return order end
+	order = {}
+	local first, step = seed % 4, seed % 3 == 0 and 3 or 1
+	for i = 0, 3 do
+		for _, part in ipairs(LIMBS[(first + i * step) % 4 + 1]) do order[#order + 1] = part end
+	end
+	order[#order + 1] = 9
+	orders[seed] = order
+	return order
+end
+
+function EvilCrawler.Eaten(corpse, part)
+	return bit.band(corpse:GetNWInt(EvilCrawler.EATEN_VAR, 0), bit.lshift(1, part - 1)) ~= 0
+end
+
+-- The part it's eating now, or nil once nothing is left but the torso.
+function EvilCrawler.CurrentPart(corpse, seed)
+	for _, part in ipairs(EvilCrawler.EatOrder(seed)) do
+		if not EvilCrawler.Eaten(corpse, part) and corpse:LookupBone(EvilCrawler.PARTS[part].root) then
+			return part
+		end
+	end
+end
 
 -- Feeding leg k's bite cycle, `t` seconds into feeding: which bite it's on
 -- and how far through it, 0..1.
@@ -33,9 +76,9 @@ function EvilCrawler.BiteCycle(k, t)
 	return n, x - n
 end
 
--- The bone feeding leg k goes for on bite n.
-function EvilCrawler.BiteBone(seed, k, n)
-	local bones = EvilCrawler.BITE_BONES
+-- The bone feeding leg k goes for on bite n, eating `part` (nil: the torso).
+function EvilCrawler.BiteBone(seed, k, n, part)
+	local bones = part and EvilCrawler.PARTS[part].bites or EvilCrawler.TORSO_BITES
 	return bones[(seed + k * 7 + n * 5) % #bones + 1]
 end
 

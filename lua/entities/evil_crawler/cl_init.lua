@@ -1,5 +1,6 @@
 include("shared.lua")
 include("evil_crawler/cl_flesh.lua")
+include("evil_crawler/cl_remains.lua")
 
 local cv_debug = CreateClientConVar("evil_crawler_debug", "0", false, false, "Draw foot targets")
 
@@ -17,7 +18,7 @@ local WINDUP, LUNGE, WRAP_TIME = EvilCrawler.STRIKE_WINDUP, EvilCrawler.STRIKE_L
 local PULL_TIME = EvilCrawler.PULL_TIME
 local BITE_JAB, BITE_IN, BITE_RIP = EvilCrawler.BITE_JAB, EvilCrawler.BITE_IN, EvilCrawler.BITE_RIP
 local LUMP_TIME = EvilCrawler.LUMP_TIME
-local BiteCycle, BiteBone = EvilCrawler.BiteCycle, EvilCrawler.BiteBone
+local BiteCycle, BiteBone, CurrentPart = EvilCrawler.BiteCycle, EvilCrawler.BiteBone, EvilCrawler.CurrentPart
 local STAB_DEPTH = 10 -- how far into the body a stab sinks
 local SWALLOW_GAP = { 1.2, 2.2 } -- seconds between swallows down the holding leg
 -- legs put to work per act; the first one holds the body while dragging and feeding
@@ -137,21 +138,33 @@ end
 -- Where feeding leg k is during its bite cycle: rearing over the next part
 -- of the body, trembling, then stabbing down into it, worrying at it, and
 -- tearing back out. Also says which bite it's on and how far through.
-local function BitePose(victim, seed, k, t, up, now, limb)
+-- `bites` remembers which bone each bite went for, so a leg mid-bite keeps
+-- at it when the part it's on is finished.
+local function BitePose(victim, seed, k, t, up, now, limb, bites)
 	local n, u = BiteCycle(k, t)
 	local center = victim:WorldSpaceCenter()
+	local part = CurrentPart(victim, seed)
 
+	-- the legs come at the same part from all round it
 	local function spot(m)
-		local p = Bone(victim, BiteBone(seed, k, m)) or center
+		local name = bites[m]
+		if not name then
+			name = BiteBone(seed, k, m, part)
+			bites[m] = name
+		end
+		local p = Bone(victim, name) or center
 		local side = p - center
 		side = side - up * side:Dot(up)
-		if side:LengthSqr() > 1 then side:Normalize() end
-		return p, p + up * 45 + side * 10 -- the bite, and where the leg tears out to
+		side = side:LengthSqr() > 1 and side:GetNormalized() or up:Angle():Right()
+		local a = k * math.pi * 0.5 + m * 0.6
+		side = side * math.cos(a) + up:Cross(side) * math.sin(a)
+		return p + side * 3, p + up * 45 + side * 12, side -- the bite, where the leg tears out to, and which side it's on
 	end
 
-	local bite, out = spot(n)
+	local bite, out, side = spot(n)
 	local _, from = spot(n - 1)
-	local cocked = bite + up * 38 + (bite - center):GetNormalized() * 8
+	bites[n - 3] = nil
+	local cocked = bite + up * 38 + side * 14
 	local deep = bite + (bite - cocked):GetNormalized() * STAB_DEPTH
 
 	if u < BITE_JAB then
@@ -400,7 +413,8 @@ function ENT:UpdateLimbs()
 			elseif holding then
 				foot = Chest(victim)
 			elseif act == ACT_FEED then
-				local bite, n, u = BitePose(victim, self:GetSeed(), role.index - 1, now - actStart - PULL_TIME, up, now, limb)
+				st.bites = st.bites or {}
+				local bite, n, u = BitePose(victim, self:GetSeed(), role.index - 1, now - actStart - PULL_TIME, up, now, limb, st.bites)
 				st.work = math.Approach(st.work or 0, 1, dt * 3)
 				foot = LerpVector(Smooth(st.work), foot, bite)
 				-- blood on the point once it's been in, and a piece going up the leg each tear
@@ -412,7 +426,7 @@ function ENT:UpdateLimbs()
 				st.biteN, st.biteStage = n, stage
 			end
 		end
-		if not (role and act == ACT_FEED) then st.work = 0 end
+		if not (role and act == ACT_FEED) then st.work, st.bites = 0, nil end
 
 		-- the holding leg swallows too, every so often
 		if act == ACT_FEED and role and role.index == 1 and now - actStart > PULL_TIME then
