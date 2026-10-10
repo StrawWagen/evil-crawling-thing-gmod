@@ -1,8 +1,9 @@
 -- How it kills: one leg rears back and whips into an NPC hard enough to
 -- drop it dead on the spot, and coils round the body as it falls. That leg
 -- is done walking until it lets go: it drags the body somewhere out of sight,
--- hauls it up into the tangle the legs grow from, and holds it there while the
--- small mouths along the other legs feed. Players are never attacked.
+-- hauls it up into the tangle the legs grow from, and holds it there, turning
+-- it over, while other legs stab into it and tear pieces away for the small
+-- mouths along them to swallow. Players are never attacked.
 
 local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
 	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
@@ -14,6 +15,13 @@ local KNOCK = 350 -- how hard the strike throws the body
 local YANK_TIME = 0.5 -- the body flies loose this long before the leg reels it in
 local PULL_TIME = EvilCrawler.PULL_TIME
 local TRAIL_RATE = 1.5 -- how fast a carried body swings round behind it
+local FEEDERS = EvilCrawler.FEEDERS
+local BITE_IN, BITE_RIP = EvilCrawler.BITE_IN, EvilCrawler.BITE_RIP
+local BiteCycle, BiteBone = EvilCrawler.BiteCycle, EvilCrawler.BiteBone
+local STAB_FORCE = 120
+local RIP_FORCE = 350
+local DRAINED = 30 -- rips until the body is as dark as it gets
+local TURN_SPEED = 35 -- degrees a second it turns the body over while eating
 local DRAG_TIME = 15 -- gives up looking for somewhere private after this long and eats where it is
 local FEED_TIME = 15
 local SATED_TIME = 90
@@ -28,13 +36,19 @@ local HIT_SOUNDS = {
 	"physics/body/body_medium_impact_hard6.wav",
 }
 local SNAP_SOUNDS = { "npc/barnacle/neck_snap1.wav", "npc/barnacle/neck_snap2.wav" }
-local FEED_SOUNDS = {
-	"npc/barnacle/barnacle_crunch2.wav",
-	"npc/barnacle/barnacle_crunch3.wav",
+local STAB_SOUNDS = {
+	"physics/flesh/flesh_impact_bullet1.wav",
+	"physics/flesh/flesh_impact_bullet3.wav",
+	"physics/flesh/flesh_impact_bullet5.wav",
+}
+local CRUNCH_SOUNDS = { "npc/barnacle/barnacle_crunch2.wav", "npc/barnacle/barnacle_crunch3.wav" }
+local RIP_SOUNDS = {
+	"physics/flesh/flesh_bloody_break.wav",
 	"physics/flesh/flesh_squishy_impact_hard1.wav",
 	"physics/flesh/flesh_squishy_impact_hard3.wav",
 	"physics/flesh/flesh_squishy_impact_hard4.wav",
 }
+local GULP_SOUNDS = { "npc/barnacle/barnacle_gulp1.wav", "npc/barnacle/barnacle_gulp2.wav" }
 local SIDES = { Vector(1, 0, 0), Vector(-1, 0, 0), Vector(0, 1, 0), Vector(0, -1, 0) }
 
 -- Walking NPCs roughly human sized: big enough to wrap, small enough to hold.
@@ -77,6 +91,7 @@ function ENT:Release()
 	self:SetAct(ACT_NONE)
 	self.Lair = nil
 	self.CarryDir = nil
+	self.BiteStage = nil
 end
 
 -- Moves a ragdoll's bones into the NPC's current pose, so the kill flows
@@ -177,6 +192,7 @@ function ENT:Strike(npc)
 	self:SetVictim(corpse)
 	self.StruckAt = now
 	self.CarryDir = dir
+	self.Eaten = 0
 	self:StartDrag(now)
 end
 
@@ -186,6 +202,7 @@ function ENT:StartDrag(now)
 	self:SetState("drag")
 	self.Lair = self:FindLair()
 	self.ActDeadline = now + DRAG_TIME
+	self.BiteStage = nil
 end
 
 local function NearestPlayer(spot)
@@ -267,20 +284,85 @@ function ENT:HoldCorpse(corpse, hold, stiffness, grip)
 	phys:SetVelocity(LerpVector(0.5 * grip, phys:GetVelocity(), (hold - p) * stiffness + self.Vel))
 end
 
-function ENT:Bite(corpse)
-	self.NextBite = CurTime() + math.Rand(0.3, 0.9)
-	local phys = corpse:GetPhysicsObjectNum(math.random(0, corpse:GetPhysicsObjectCount() - 1))
-	if not IsValid(phys) then return end
+local function BitePhys(corpse, name)
+	local bone = corpse:LookupBone(name)
+	local index = bone and corpse:TranslateBoneToPhysBone(bone) or -1
+	if index < 0 then index = math.random(0, corpse:GetPhysicsObjectCount() - 1) end
+	local phys = corpse:GetPhysicsObjectNum(index)
+	return IsValid(phys) and phys
+end
 
-	local p = phys:GetPos()
-	phys:ApplyForceCenter(VectorRand() * phys:GetMass() * 250)
+-- A leg drives into the body from above.
+function ENT:Stab(phys)
+	local p, up = phys:GetPos(), self.BodyUp
+	phys:ApplyForceCenter(-up * phys:GetMass() * STAB_FORCE)
 
 	local fx = EffectData()
 	fx:SetOrigin(p)
-	fx:SetNormal(VectorRand())
+	fx:SetNormal(up)
 	util.Effect("BloodImpact", fx)
-	util.Decal("Blood", p, p + VectorRand() * 96, corpse)
-	sound.Play(FEED_SOUNDS[math.random(#FEED_SOUNDS)], p, 65, math.random(90, 115), 0.6)
+	util.Decal("Blood", p + up * 24, p - up * 24, self)
+	sound.Play(STAB_SOUNDS[math.random(#STAB_SOUNDS)], p, 70, math.random(80, 100), 0.8)
+	if math.random() < 0.5 then
+		sound.Play(CRUNCH_SOUNDS[math.random(#CRUNCH_SOUNDS)], p, 65, math.random(85, 110), 0.6)
+	end
+end
+
+-- It tears back out with a piece, jerking the limb after it. A moment later
+-- the piece reaches the tangle and goes down.
+function ENT:Rip(phys, corpse)
+	local p, up = phys:GetPos(), self.BodyUp
+	local dir = (up + VectorRand() * 0.5):GetNormalized()
+	phys:ApplyForceCenter(dir * phys:GetMass() * RIP_FORCE)
+
+	local fx = EffectData()
+	fx:SetOrigin(p)
+	fx:SetNormal(dir)
+	fx:SetScale(6)
+	fx:SetColor(BLOOD_COLOR_RED)
+	fx:SetFlags(3)
+	util.Effect("bloodspray", fx)
+	util.Effect("BloodImpact", fx)
+	util.Decal("Blood", p, p - up * 200 + VectorRand() * 40, corpse)
+	sound.Play(RIP_SOUNDS[math.random(#RIP_SOUNDS)], p, 72, math.random(85, 110), 0.8)
+
+	self.Eaten = (self.Eaten or 0) + 1
+	local k = math.min(1, self.Eaten / DRAINED)
+	corpse:SetColor(Color(255 - 150 * k, 255 - 205 * k, 255 - 205 * k))
+
+	timer.Simple(EvilCrawler.LUMP_TIME, function()
+		if IsValid(self) then
+			sound.Play(GULP_SOUNDS[math.random(#GULP_SOUNDS)], self:GetPos(), 60, math.random(70, 90), 0.6)
+		end
+	end)
+end
+
+-- Once the body is hauled in: runs the bite schedule each feeding leg is
+-- drawn following, and slowly turns the body over to get at all of it.
+function ENT:Feed(corpse, now)
+	local t = now - self:GetActStart() - PULL_TIME
+	if t < 0 then return end
+
+	local seed = self:GetSeed()
+	self.BiteStage = self.BiteStage or {}
+	for k = 1, FEEDERS do
+		local n, u = BiteCycle(k, t)
+		local stage = n * 3 + (u < BITE_IN and 0 or u < BITE_RIP and 1 or 2)
+		local last = self.BiteStage[k]
+		self.BiteStage[k] = stage
+		if last and stage ~= last and stage % 3 ~= 0 then
+			local phys = BitePhys(corpse, BiteBone(seed, k, n))
+			if phys then
+				if stage % 3 == 1 then self:Stab(phys) else self:Rip(phys, corpse) end
+			end
+		end
+	end
+
+	local chest = Chest(corpse)
+	if IsValid(chest) then
+		local want = chest:WorldToLocalVector(self.BodyUp) * (TURN_SPEED * math.sin(t * 0.35 + seed % 7))
+		chest:AddAngleVelocity((want - chest:GetAngleVelocity()) * 0.05)
+	end
 end
 
 -- Brain side: where to go during each act, and when to move on.
@@ -338,9 +420,7 @@ function ENT:UpdateAct(now)
 	else
 		local grip = math.Clamp((now - (self.StruckAt or 0)) / YANK_TIME, 0.05, 1)
 		self:HoldCorpse(victim, self:HoldPoint(now, FrameTime()), 8, grip * grip)
-		if self:GetAct() == ACT_FEED and self:Pull(now) >= 1 and now >= (self.NextBite or 0) then
-			self:Bite(victim)
-		end
+		if self:GetAct() == ACT_FEED then self:Feed(victim, now) end
 	end
 end
 
