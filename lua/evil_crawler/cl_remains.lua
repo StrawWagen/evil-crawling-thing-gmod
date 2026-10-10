@@ -28,6 +28,15 @@ local function Shape(size)
 	return { bone = { x = math.Rand(-0.25, 0.25), y = math.Rand(-0.25, 0.25), len = size * math.Rand(1.2, 2) }, strands = strands }
 end
 
+-- Where a part was attached, or nil once whatever it hung off has been eaten
+-- too (a knee stump goes when the thigh does).
+local function StumpBone(rag, part)
+	local b = rag:LookupBone(part.root)
+	local parent = b and rag:GetBoneParent(b)
+	if not parent or parent < 0 or rag:GetManipulateBoneScale(parent).x == 0 then return end
+	return b, parent
+end
+
 timer.Create("EvilCrawlerRemains", SCAN_INTERVAL, 0, function()
 	for _, rag in ipairs(ents.FindByClass("prop_ragdoll")) do
 		local mask = rag:GetNWInt(EATEN_VAR, 0)
@@ -50,7 +59,7 @@ timer.Create("EvilCrawlerRemains", SCAN_INTERVAL, 0, function()
 			for i, stump in pairs(r) do
 				local age = now - stump.at
 				if age < DRIP_TIME and math.random() < 0.8 * (1 - age / DRIP_TIME) then
-					local b = rag:LookupBone(PARTS[i].root)
+					local b = StumpBone(rag, PARTS[i])
 					local p = b and rag:GetBonePosition(b)
 					if p then
 						local fx = EffectData()
@@ -82,9 +91,8 @@ end
 local pts2, pts3 = {}, {}
 
 local function DrawStump(rag, part, shape)
-	local b = rag:LookupBone(part.root)
-	local parent = b and rag:GetBoneParent(b)
-	if not parent or parent < 0 then return end
+	local b, parent = StumpBone(rag, part)
+	if not b then return end
 	local p, pp = rag:GetBonePosition(b), rag:GetBonePosition(parent)
 	if not p or not pp then return end
 
