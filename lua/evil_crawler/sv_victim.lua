@@ -15,6 +15,9 @@ local SETTLED = 60 -- and not until the body has stopped tumbling
 local THRASH_FORCE = 450
 local WOUND = { 0.08, 0.13 } -- share of max health each piece torn away costs
 local FADING = 0.3 -- below this share of health, too far gone to scream
+local CRY_FEAR = { radius = 900, time = 30 } -- NPCs this close to a cry are frightened this long
+local STRIKE_FEAR = { radius = 600, time = 20 } -- and to the strike
+local ESCAPE_FEAR = 90 -- an NPC that got away stays frightened this long
 local BLEED = 0.02 -- share of max health lost a second once a part is gone
 
 Victim.bodies = Victim.bodies or {} -- every ragdoll standing in for a live NPC
@@ -128,6 +131,7 @@ local function Say(rag, kind, level)
 	if not lines then return end
 	local line = lines[math.random(#lines)]
 	rag:EmitSound(line, level or 90, rag.EvilCrawlerPitch, 1, CHAN_VOICE)
+	EvilCrawler.Scent.Frighten(rag:GetPos(), CRY_FEAR.radius, CRY_FEAR.time)
 	return line
 end
 
@@ -211,6 +215,7 @@ function Victim.KnockOut(npc, holder)
 	rag.EvilCrawlerPitch = math.random(94, 106)
 	rag.WakeAt = CurTime() + knockout * math.Rand(0.75, 1.25)
 	Victim.bodies[rag] = true
+	EvilCrawler.Scent.Frighten(rag:GetPos(), STRIKE_FEAR.radius, STRIKE_FEAR.time)
 
 	-- the blow knocks the cry clean out of them
 	local cry = Say(rag, "pain", 80)
@@ -317,6 +322,7 @@ local function GetUp(rag, npc)
 	if not npc.EvilCrawlerHadNoTarget then npc:RemoveFlags(FL_NOTARGET) end
 	npc.EvilCrawlerVictim = nil
 	npc.EvilCrawlerBody = nil
+	npc.EvilCrawlerFearUntil = CurTime() + ESCAPE_FEAR
 	rag.EvilCrawlerNPC = nil
 	rag:Remove()
 	npc:SetSchedule(SCHED_RUN_RANDOM)

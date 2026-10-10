@@ -3,8 +3,9 @@
 --   tremor  players running on the ground with nothing solid in between
 --   scent   the trails everyone leaves (sv_scent.lua), followed toward
 --           fresher scent
--- Hungry, it goes for NPCs it can kill (sv_attack.lua) over players, which it
--- only stalks.
+-- Hungry, it goes for NPCs it can eat (sv_attack.lua) over players, which it
+-- only stalks, and follows NPC trails over theirs. Fed, it loses interest in
+-- NPC trails. Fear draws it either way.
 -- Each thought sets self.Goal (a point to crawl toward) and self.Pace (a
 -- share of top speed); Crawl does the moving.
 
@@ -25,6 +26,9 @@ local SKIP_AHEAD = 260 -- heads straight for trail nodes this close, skipping th
 local SEARCH_TIME = 8
 local SEARCH_SPREAD = 300
 local STUCK_TIME = 2.5
+local HUNGRY_PULL = 2 -- how much more an NPC's trail draws it when it's hungry
+local FED_PULL = 0.3 -- and when it isn't
+local FEAR_PULL = 1.5
 
 local PACE = { roam = 0.45, search = 0.6, track = 0.85, hunt = 1.25, strike = 0, drag = 0.7, feed = 0 }
 local MOOD = { roam = 0, search = 1, track = 1, hunt = 2, strike = 2, drag = 1, feed = 1 }
@@ -81,6 +85,14 @@ function ENT:Sense()
 		if felt and (not person or d < personDist) then person, personDist = ply, d end
 	end
 	return person
+end
+
+-- How strongly a bit of scent draws it.
+function ENT:Appeal(node, now)
+	local w = 1
+	if node.npc then w = self:IsHungry() and HUNGRY_PULL or FED_PULL end
+	if node.fear then w = math.max(w, 1) * FEAR_PULL end
+	return Scent.Intensity(node, now) * w
 end
 
 -- Walks a trail toward fresher scent, past every node already reached or
@@ -157,9 +169,10 @@ function ENT:Ponder()
 
 	-- 2. a scent trail: stay on the current one unless a much fresher one crosses it
 	local node = self.Trail
-	if node and (node.dead or Scent.Intensity(node, now) < SCENT_THRESHOLD * 0.5) then node = nil end
-	local whiff, strength = Scent.Strongest(pos, SNIFF_RADIUS, now)
-	if whiff and strength >= SCENT_THRESHOLD and (not node or strength > Scent.Intensity(node, now) * 1.5) then
+	if node and (node.dead or self:Appeal(node, now) < SCENT_THRESHOLD * 0.5) then node = nil end
+	self.WeighScent = self.WeighScent or function(n, t) return self:Appeal(n, t) end
+	local whiff, strength = Scent.Strongest(pos, SNIFF_RADIUS, now, self.WeighScent)
+	if whiff and strength >= SCENT_THRESHOLD and (not node or strength > self:Appeal(node, now) * 1.5) then
 		node = whiff
 	end
 

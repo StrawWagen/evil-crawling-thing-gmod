@@ -2,6 +2,8 @@
 -- fading over time. Crawlers don't know where players are; they smell where
 -- players have been and follow the chain toward fresher scent. One shared
 -- scent map serves every crawler on the server.
+-- Frightened NPCs sweat fear into their trail: heavier, and it draws crawlers
+-- in whether they're hungry or not.
 EvilCrawler = EvilCrawler or {}
 local Scent = EvilCrawler.Scent or {}
 EvilCrawler.Scent = Scent
@@ -13,6 +15,9 @@ local TELEPORT = 512 -- moving further than this between drops starts a new trai
 local HALF_LIFE = 45 -- seconds for scent to fade to half strength
 local MAX_AGE = 240
 local BLEED_TIME = 10 -- seconds after taking damage that a player's scent is stronger
+local NPC_SLOW, NPC_FAST = 40, 240 -- NPC speeds that leave the faintest and heaviest trails
+local FEAR = 1.5 -- extra strength a frightened NPC's trail carries
+local FIGHTING = 0.4 -- and one in a fight
 local CELL = 128
 
 local cv_debug = CreateConVar("evil_crawler_debug_scent", "0", 0, "Draw scent trails (needs developer 1)")
@@ -54,11 +59,28 @@ function Scent.Intensity(node, now)
 	return node.strength * 0.5 ^ ((now - node.time) / HALF_LIFE)
 end
 
--- Sprinting and bleeding leave a heavy trail, crouching a faint one.
+local function Afraid(ent, now)
+	return ent:IsNPC() and now < (ent.EvilCrawlerFearUntil or 0)
+end
+
+-- Frightens every NPC within radius of pos for `duration` seconds.
+function Scent.Frighten(pos, radius, duration)
+	local now, r2 = CurTime(), radius * radius
+	for npc in pairs(Scent.npcs) do
+		if IsValid(npc) and not npc.EvilCrawlerVictim and npc:GetPos():DistToSqr(pos) <= r2 then
+			npc.EvilCrawlerFearUntil = math.max(npc.EvilCrawlerFearUntil or 0, now + duration)
+		end
+	end
+end
+
+-- Sprinting and bleeding leave a heavy trail, crouching a faint one. NPCs
+-- running, fighting or frightened leave a heavier one than NPCs standing about.
 local function Strength(ply, now)
 	local s = 1
-	if not ply:IsPlayer() then
-		s = 1
+	if ply:IsNPC() then
+		s = Lerp(math.Clamp(((ply.EvilCrawlerSpeed or 0) - NPC_SLOW) / (NPC_FAST - NPC_SLOW), 0, 1), 0.6, 1.6)
+		if ply:GetNPCState() == NPC_STATE_COMBAT then s = s + FIGHTING end
+		if Afraid(ply, now) then s = s + FEAR end
 	elseif ply:Crouching() then
 		s = 0.35
 	elseif ply:KeyDown(IN_SPEED) and ply:GetVelocity():Length2D() > ply:GetWalkSpeed() then
@@ -103,7 +125,10 @@ local function Drop(ply, now)
 		Scent.trails[trail] = true
 	end
 
-	local node = { pos = pos, time = now, strength = Strength(ply, now), trail = trail, prev = trail.last }
+	local node = {
+		pos = pos, time = now, strength = Strength(ply, now), trail = trail, prev = trail.last,
+		npc = ply:IsNPC(), fear = Afraid(ply, now),
+	}
 	if trail.last then trail.last.next = node else trail.first = node end
 	trail.last = node
 	Insert(node)
@@ -126,8 +151,9 @@ local function Prune(now)
 	end
 end
 
--- The strongest scent within radius of pos, and how strong it is.
-function Scent.Strongest(pos, radius, now)
+-- The strongest scent within radius of pos, and how strong it is. `weigh`,
+-- if given, says how strong a node counts as instead of its intensity.
+function Scent.Strongest(pos, radius, now, weigh)
 	local best, bestIntensity = nil, 0
 	local r2 = radius * radius
 	local x0, y0, z0 = CellOf(pos - Vector(radius, radius, radius))
@@ -139,7 +165,7 @@ function Scent.Strongest(pos, radius, now)
 				if cell then
 					for node in pairs(cell) do
 						if node.pos:DistToSqr(pos) <= r2 then
-							local i = Scent.Intensity(node, now)
+							local i = weigh and weigh(node, now) or Scent.Intensity(node, now)
 							if i > bestIntensity then best, bestIntensity = node, i end
 						end
 					end
@@ -155,7 +181,7 @@ local function DrawDebug(now)
 		local node = trail.first
 		while node do
 			local i = math.min(1, Scent.Intensity(node, now))
-			local c = Color(255 * i, 60, 255 * (1 - i))
+			local c = node.fear and Color(60, 255 * i, 60) or Color(255 * i, 60, 255 * (1 - i))
 			debugoverlay.Cross(node.pos, 4, DROP_INTERVAL + 0.05, c, true)
 			if node.next then debugoverlay.Line(node.pos, node.next.pos, DROP_INTERVAL + 0.05, c, true) end
 			node = node.next
@@ -166,6 +192,11 @@ end
 timer.Create("EvilCrawlerScent", DROP_INTERVAL, 0, function()
 	local now = CurTime()
 	local function visit(ent)
+		if ent:IsNPC() then
+			local pos = ent:GetPos()
+			ent.EvilCrawlerSpeed = ent.EvilCrawlerLastPos and pos:Distance(ent.EvilCrawlerLastPos) / DROP_INTERVAL or 0
+			ent.EvilCrawlerLastPos = pos
+		end
 		if LeavesScent(ent) then
 			Drop(ent, now)
 		else
