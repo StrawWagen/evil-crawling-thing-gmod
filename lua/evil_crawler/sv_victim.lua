@@ -1,8 +1,9 @@
 -- What happens to the NPCs a crawler strikes. The strike doesn't kill: the
 -- NPC is put away, frozen and hidden, and a ragdoll lies in for it, out cold.
 -- Left long enough it comes to. Still held, it screams and fights the leg;
--- dropped, it gets back up and runs. It dies once it's been eaten enough, or
--- when someone shoots the body.
+-- dropped, it gets back up and runs, unless it's missing a part, in which
+-- case it lies where it's dropped and bleeds out. It dies once it's been
+-- eaten enough, when its head goes, or when someone shoots the body.
 EvilCrawler = EvilCrawler or {}
 local Victim = EvilCrawler.Victim or {}
 EvilCrawler.Victim = Victim
@@ -14,6 +15,7 @@ local SETTLED = 60 -- and not until the body has stopped tumbling
 local THRASH_FORCE = 450
 local WOUND = { 0.08, 0.13 } -- share of max health each piece torn away costs
 local FADING = 0.3 -- below this share of health, too far gone to scream
+local BLEED = 0.02 -- share of max health lost a second once a part is gone
 
 Victim.bodies = Victim.bodies or {} -- every ragdoll standing in for a live NPC
 
@@ -137,9 +139,15 @@ local function PhysOf(rag, bone)
 	return IsValid(phys) and phys
 end
 
+local function Gone(rag, bone)
+	local b = rag:LookupBone(bone)
+	return b and rag:GetManipulateBoneScale(b).x == 0
+end
+
 local function Thrash(rag, strength, kicks)
 	for _ = 1, kicks do
-		local phys = PhysOf(rag, LIMBS[math.random(#LIMBS)])
+		local limb = LIMBS[math.random(#LIMBS)]
+		local phys = not Gone(rag, limb) and PhysOf(rag, limb)
 		if phys then phys:ApplyForceCenter(VectorRand() * phys:GetMass() * THRASH_FORCE * strength) end
 	end
 end
@@ -268,6 +276,18 @@ function Victim.Pierced(rag)
 	Thrash(rag, 1.2, 3)
 end
 
+-- A part of them has been eaten away. Without a head that's the end of it;
+-- otherwise they won't be getting up again.
+function Victim.Maimed(rag, bone, attacker)
+	if not Victim.Alive(rag) then return end
+	if bone == "ValveBiped.Bip01_Head1" then
+		rag.Awake = false -- nothing left to cry out with
+		Victim.Kill(rag, attacker)
+		return
+	end
+	rag.Maimed = true
+end
+
 -- Somewhere the NPC fits standing up, near the body.
 local function StandingSpot(npc, rag)
 	local pos = rag:GetPos()
@@ -324,7 +344,29 @@ local function Update(rag, now)
 		Thrash(rag, 1.6, 6)
 	end
 
+	if rag.Maimed then
+		rag.Bled = (rag.Bled or 0) + FrameTime()
+		if rag.Bled >= 0.5 then
+			Victim.Hurt(rag, npc:GetMaxHealth() * BLEED * rag.Bled, game.GetWorld())
+			rag.Bled = 0
+			if not Victim.Alive(rag) then return end
+		end
+	end
+
 	if not held then
+		if rag.Maimed then
+			-- can't get up like this: writhes where it lies, fainter and fainter
+			if now >= (rag.NextThrash or 0) then
+				local life = math.Clamp(npc:Health() / math.max(1, npc:GetMaxHealth()), 0.1, 1)
+				rag.NextThrash = now + math.Rand(0.5, 1.5) / life
+				Thrash(rag, life * 0.6, 1)
+			end
+			if now >= rag.NextCry then
+				rag.NextCry = now + math.Rand(2.5, 5)
+				Say(rag, "die", 70)
+			end
+			return
+		end
 		local root = rag:GetPhysicsObject()
 		local still = not IsValid(root) or root:GetVelocity():Length() < SETTLED
 		if still and now - rag.LetGoAt > GETUP_TIME then GetUp(rag, npc) end
