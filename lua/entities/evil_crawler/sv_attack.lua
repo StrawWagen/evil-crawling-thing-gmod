@@ -320,7 +320,7 @@ function ENT:Consume(corpse, part, now)
 	if not bone then return end
 	local p = corpse:GetBonePosition(bone) or corpse:WorldSpaceCenter()
 	Strip(corpse, bone)
-	corpse:SetNWInt(EvilCrawler.EATEN_VAR, bit.bor(corpse:GetNWInt(EvilCrawler.EATEN_VAR, 0), bit.lshift(1, part - 1)))
+	corpse:SetNW2Int(EvilCrawler.EATEN_VAR, bit.bor(corpse:GetNW2Int(EvilCrawler.EATEN_VAR, 0), bit.lshift(1, part - 1)))
 
 	local fx = EffectData()
 	fx:SetOrigin(p)

@@ -56,7 +56,7 @@ function EvilCrawler.EatOrder(seed)
 end
 
 function EvilCrawler.Eaten(corpse, part)
-	return bit.band(corpse:GetNWInt(EvilCrawler.EATEN_VAR, 0), bit.lshift(1, part - 1)) ~= 0
+	return bit.band(corpse:GetNW2Int(EvilCrawler.EATEN_VAR, 0), bit.lshift(1, part - 1)) ~= 0
 end
 
 -- The part it's eating now, or nil once nothing is left but the torso.
