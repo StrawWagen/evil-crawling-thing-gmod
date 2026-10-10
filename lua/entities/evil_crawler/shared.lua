@@ -2,11 +2,12 @@ include("evil_crawler/sh_ik.lua")
 include("evil_crawler/sh_morph.lua")
 
 EvilCrawler.ACT_NONE = 0
-EvilCrawler.ACT_CONSTRICT = 1
+EvilCrawler.ACT_STRIKE = 1
 EvilCrawler.ACT_DRAG = 2
 EvilCrawler.ACT_FEED = 3
-EvilCrawler.WRAP_TIME = 1.2 -- legs coil up the victim
-EvilCrawler.SNAP_TIME = 3 -- then squeeze until the neck goes
+EvilCrawler.STRIKE_WINDUP = 0.4 -- one leg rears back, trembling
+EvilCrawler.STRIKE_LUNGE = 0.08 -- then whips into the victim
+EvilCrawler.WRAP_TIME = 0.15 -- and coils round the body as it drops
 
 ENT.Type = "anim"
 ENT.Base = "base_anim"
@@ -23,7 +24,7 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Entity", 0, "Prey")
 	self:NetworkVar("Int", 2, "Act") -- what it's doing to its victim, EvilCrawler.ACT_*
 	self:NetworkVar("Float", 0, "ActStart")
-	self:NetworkVar("Entity", 1, "Victim") -- the NPC while constricting, then its corpse
+	self:NetworkVar("Entity", 1, "Victim") -- the NPC while striking, then its corpse
 end
 
 function ENT:Trace(from, to)

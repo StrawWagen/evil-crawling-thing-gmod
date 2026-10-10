@@ -26,8 +26,8 @@ local SEARCH_TIME = 8
 local SEARCH_SPREAD = 300
 local STUCK_TIME = 2.5
 
-local PACE = { roam = 0.45, search = 0.6, track = 0.85, hunt = 1.25, constrict = 0, drag = 0.7, feed = 0 }
-local MOOD = { roam = 0, search = 1, track = 1, hunt = 2, constrict = 2, drag = 1, feed = 1 }
+local PACE = { roam = 0.45, search = 0.6, track = 0.85, hunt = 1.25, strike = 0, drag = 0.7, feed = 0 }
+local MOOD = { roam = 0, search = 1, track = 1, hunt = 2, strike = 2, drag = 1, feed = 1 }
 local STATE_COLOR = { roam = Color(120, 120, 120), search = Color(255, 200, 0), track = Color(255, 120, 0), hunt = Color(255, 0, 0) }
 
 local function Perceivable(ent)
@@ -125,7 +125,7 @@ function ENT:Ponder()
 		-- steer it into an NPC to test the kill
 		for npc in pairs(Scent.npcs) do
 			if IsValid(npc) and self:CanAttack(npc) then
-				self:StartConstrict(npc)
+				self:StartStrike(npc)
 				return
 			end
 		end
@@ -137,7 +137,7 @@ function ENT:Ponder()
 	self:SetPrey(prey or NULL)
 	if prey then
 		if self:CanAttack(prey) then
-			self:StartConstrict(prey)
+			self:StartStrike(prey)
 			return
 		end
 		self:SetState("hunt")

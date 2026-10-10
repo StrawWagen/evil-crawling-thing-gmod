@@ -1,19 +1,29 @@
--- How it kills: wraps its legs around an NPC like a constrictor, squeezes
--- until the neck snaps, then drags the body somewhere out of sight and feeds
--- on it with the small mouths along its legs. Players are never attacked.
+-- How it kills: one leg rears back and whips into an NPC hard enough to
+-- drop it dead on the spot, and coils round the body as it falls. Then it
+-- drags the body somewhere out of sight and feeds on it with the small mouths
+-- along its legs. Players are never attacked.
 
-local ACT_NONE, ACT_CONSTRICT, ACT_DRAG, ACT_FEED =
-	EvilCrawler.ACT_NONE, EvilCrawler.ACT_CONSTRICT, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
-local WRAP_TIME, SNAP_TIME = EvilCrawler.WRAP_TIME, EvilCrawler.SNAP_TIME
+local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
+	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
+local IMPACT_TIME = EvilCrawler.STRIKE_WINDUP + EvilCrawler.STRIKE_LUNGE
 
-local ATTACK_REACH = 110
+local ATTACK_REACH = 140
+local MISS_REACH = ATTACK_REACH * 1.5 -- got this far away during the windup: the strike misses
+local KNOCK = 350 -- how hard the strike throws the body
+local YANK_TIME = 0.5 -- the body flies loose this long before the leg reels it in
 local DRAG_TIME = 15 -- gives up looking for somewhere private after this long and eats where it is
 local FEED_TIME = 15
 local SATED_TIME = 90
 local LAIR_TRIES = 12
 local DISTURB_RANGE = 330
 
-local GRAB_SOUND = "physics/flesh/flesh_squishy_impact_hard2.wav"
+local WINDUP_SOUNDS = { "npc/barnacle/barnacle_tongue_pull1.wav", "npc/barnacle/barnacle_tongue_pull2.wav" }
+local LUNGE_SOUND = "npc/zombie/claw_miss1.wav"
+local HIT_SOUNDS = {
+	"physics/body/body_medium_impact_hard1.wav",
+	"physics/body/body_medium_impact_hard4.wav",
+	"physics/body/body_medium_impact_hard6.wav",
+}
 local SNAP_SOUNDS = { "npc/barnacle/neck_snap1.wav", "npc/barnacle/neck_snap2.wav" }
 local FEED_SOUNDS = {
 	"npc/barnacle/barnacle_crunch2.wav",
@@ -41,26 +51,24 @@ function ENT:CanAttack(ent)
 		and ent:WorldSpaceCenter():Distance(self:GetPos()) < ATTACK_REACH
 end
 
-function ENT:StartConstrict(npc)
+function ENT:StartStrike(npc)
 	npc.EvilCrawlerVictim = self
-	npc.EvilCrawlerAngles = npc:GetAngles()
-	npc:SetSchedule(SCHED_NPC_FREEZE)
-	sound.Play(GRAB_SOUND, npc:WorldSpaceCenter(), 70, math.random(80, 95))
+	sound.Play(WINDUP_SOUNDS[math.random(#WINDUP_SOUNDS)], self:GetPos(), 60, math.random(70, 85), 0.7)
 
 	self:SetPrey(NULL)
 	self:SetVictim(npc)
-	self:SetAct(ACT_CONSTRICT)
+	self:SetAct(ACT_STRIKE)
 	self:SetActStart(CurTime())
-	self:SetState("constrict")
+	self:SetState("strike")
+	self.Lunged = false
 end
 
--- Ends whatever it's doing. A victim still alive is let go; a corpse is left
--- where it lies.
+-- Ends whatever it's doing. A victim that dodged the strike is fair game
+-- again; a corpse is left where it lies.
 function ENT:Release()
 	local victim = self:GetVictim()
 	if IsValid(victim) and victim:IsNPC() and victim.EvilCrawlerVictim == self then
 		victim.EvilCrawlerVictim = nil
-		if victim:Health() > 0 then victim:SetSchedule(SCHED_IDLE_STAND) end
 	end
 	self:SetVictim(NULL)
 	self:SetAct(ACT_NONE)
@@ -117,9 +125,21 @@ local function Chest(corpse)
 	return corpse:GetPhysicsObjectNum(index >= 0 and index or 0)
 end
 
-function ENT:Snap(npc)
+-- The leg lands: the NPC drops as a corpse thrown along the blow, already
+-- caught in the leg's coil.
+function ENT:Strike(npc)
 	local now = CurTime()
+	local center = npc:WorldSpaceCenter()
+	local dir = (center - self:GetPos()):GetNormalized()
+
+	sound.Play(HIT_SOUNDS[math.random(#HIT_SOUNDS)], center, 85, math.random(80, 95))
 	sound.Play(SNAP_SOUNDS[math.random(#SNAP_SOUNDS)], npc:EyePos(), 80, math.random(90, 105))
+	local fx = EffectData()
+	fx:SetOrigin(center)
+	fx:SetNormal(-dir)
+	util.Effect("BloodImpact", fx)
+	util.Decal("Blood", center, center + dir * 160, npc)
+
 	if npc.DropWeapon and IsValid(npc:GetActiveWeapon()) then npc:DropWeapon() end
 
 	local corpse = MakeCorpse(npc)
@@ -136,11 +156,18 @@ function ENT:Snap(npc)
 		return
 	end
 
+	local knock = dir * KNOCK + vector_up * 120
+	for i = 0, corpse:GetPhysicsObjectCount() - 1 do
+		local phys = corpse:GetPhysicsObjectNum(i)
+		if IsValid(phys) then phys:SetVelocity(knock) end
+	end
+
 	hook.Run("OnNPCKilled", npc, self, self)
 	npc.EvilCrawlerVictim = nil
 	npc:Remove()
 
 	self:SetVictim(corpse)
+	self.StruckAt = now
 	self:StartDrag(now)
 end
 
@@ -194,7 +221,8 @@ function ENT:Disturbed()
 end
 
 -- The body hangs by its chest from beneath the legs, wherever it crawls.
-function ENT:HoldCorpse(corpse, stiffness)
+-- With a loose grip it keeps more of its own momentum.
+function ENT:HoldCorpse(corpse, stiffness, grip)
 	local phys = Chest(corpse)
 	if not IsValid(phys) then return end
 	local hold = self:GetPos() - self.BodyUp * (self.BodyHeight * 0.55)
@@ -203,7 +231,7 @@ function ENT:HoldCorpse(corpse, stiffness)
 		self:Release() -- snagged on something; leave it
 		return
 	end
-	phys:SetVelocity(LerpVector(0.5, phys:GetVelocity(), (hold - p) * stiffness + self.Vel))
+	phys:SetVelocity(LerpVector(0.5 * grip, phys:GetVelocity(), (hold - p) * stiffness + self.Vel))
 end
 
 function ENT:Bite(corpse)
@@ -225,7 +253,7 @@ end
 -- Brain side: where to go during each act, and when to move on.
 function ENT:PonderAct(now)
 	local act = self:GetAct()
-	if act == ACT_CONSTRICT then
+	if act == ACT_STRIKE then
 		self.Goal = nil
 	elseif act == ACT_DRAG then
 		self.Goal = self.Lair
@@ -246,7 +274,7 @@ function ENT:PonderAct(now)
 	end
 end
 
--- Every tick: keep the victim pinned, or the body in hand.
+-- Every tick: time the strike, or keep the body in hand.
 function ENT:UpdateAct(now)
 	local act = self:GetAct()
 	if act == ACT_NONE then return end
@@ -257,18 +285,26 @@ function ENT:UpdateAct(now)
 		return
 	end
 
-	if act == ACT_CONSTRICT then
+	if act == ACT_STRIKE then
 		if victim:Health() <= 0 then
 			self:Release() -- something else killed it first
 			return
 		end
-		if not victim:IsCurrentSchedule(SCHED_NPC_FREEZE) then victim:SetSchedule(SCHED_NPC_FREEZE) end
 		local t = now - self:GetActStart()
-		local squeeze = math.Clamp((t - WRAP_TIME) / (SNAP_TIME - WRAP_TIME), 0, 1)
-		victim:SetAngles(victim.EvilCrawlerAngles + Angle(0, math.sin(now * 23) * 8 * squeeze, 0))
-		if t >= SNAP_TIME then self:Snap(victim) end
+		if not self.Lunged and t >= EvilCrawler.STRIKE_WINDUP then
+			self.Lunged = true
+			sound.Play(LUNGE_SOUND, self:GetPos(), 75, math.random(60, 75))
+		end
+		if t >= IMPACT_TIME then
+			if victim:WorldSpaceCenter():Distance(self:GetPos()) < MISS_REACH then
+				self:Strike(victim)
+			else
+				self:Release()
+			end
+		end
 	else
-		self:HoldCorpse(victim, act == ACT_FEED and 4 or 8)
+		local grip = math.Clamp((now - (self.StruckAt or 0)) / YANK_TIME, 0.05, 1)
+		self:HoldCorpse(victim, act == ACT_FEED and 4 or 8, grip * grip)
 		if self:GetAct() == ACT_FEED and now >= (self.NextBite or 0) then self:Bite(victim) end
 	end
 end

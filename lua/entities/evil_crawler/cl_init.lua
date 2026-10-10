@@ -11,10 +11,10 @@ local THREAT_ARC = 35 -- legs pointing within this many degrees of a player rear
 local IK_ITERATIONS = 3
 local LOD_DISTANCE = 1500
 
-local ACT_NONE, ACT_CONSTRICT, ACT_DRAG, ACT_FEED =
-	EvilCrawler.ACT_NONE, EvilCrawler.ACT_CONSTRICT, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
-local WRAP_TIME, SNAP_TIME = EvilCrawler.WRAP_TIME, EvilCrawler.SNAP_TIME
-local ROLE_COUNT = { [ACT_CONSTRICT] = 5, [ACT_DRAG] = 2, [ACT_FEED] = 4 } -- legs put to work per act
+local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
+	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
+local WINDUP, LUNGE, WRAP_TIME = EvilCrawler.STRIKE_WINDUP, EvilCrawler.STRIKE_LUNGE, EvilCrawler.WRAP_TIME
+local ROLE_COUNT = { [ACT_STRIKE] = 1, [ACT_DRAG] = 2, [ACT_FEED] = 4 } -- legs put to work per act
 local COIL_POINTS = 26 -- a coiled leg is drawn through this many points
 local REACH_POINTS = 8 -- of which this many reach from the root to the victim
 
@@ -91,12 +91,17 @@ local function Resample(pts, m, out)
 	return out
 end
 
-local function Chest(ent)
-	local bone = ent:LookupBone("ValveBiped.Bip01_Spine2")
-	return bone and ent:GetBonePosition(bone) or ent:WorldSpaceCenter()
+local function Bone(ent, name)
+	local bone = ent:LookupBone(name)
+	return bone and ent:GetBonePosition(bone)
 end
 
--- Picks the legs nearest the victim for the job at hand.
+local function Chest(ent)
+	return Bone(ent, "ValveBiped.Bip01_Spine2") or ent:WorldSpaceCenter()
+end
+
+-- Picks the legs nearest the victim for the job at hand. The leg that struck
+-- keeps hold of the body it struck.
 function ENT:AssignRoles(morph, act, victim, pos, fwd, left)
 	local roles = {}
 	if act == ACT_NONE or not IsValid(victim) then return roles end
@@ -107,6 +112,12 @@ function ENT:AssignRoles(morph, act, victim, pos, fwd, left)
 	table.sort(order, function(a, b)
 		return math.abs(math.AngleDifference(a.angle, yaw)) < math.abs(math.AngleDifference(b.angle, yaw))
 	end)
+	if act == ACT_STRIKE then
+		self.Striker = order[1]
+	elseif act == ACT_DRAG and self.Striker then
+		table.RemoveByValue(order, self.Striker)
+		table.insert(order, 1, self.Striker)
+	end
 
 	local count = math.min(ROLE_COUNT[act], #order - 3)
 	for k = 1, count do
@@ -115,41 +126,54 @@ function ENT:AssignRoles(morph, act, victim, pos, fwd, left)
 	return roles
 end
 
--- A leg wrapped round the victim: an arch from the root to the victim's
--- side, then a helix climbing the body. Each leg takes its own band of the
--- body, and the last one ends at the neck. The coil climbs over WRAP_TIME,
--- then cinches tighter and trembles until the snap.
-local function Coil(st, leg, role, root, victim, t, now)
-	local base = victim:GetPos()
-	local mins, maxs = victim:OBBMins(), victim:OBBMaxs()
-	local height = maxs.z
+-- Where a holding leg coils on the body, as an axis to wrap round and a
+-- radius: the first round the torso, the rest round both thighs together.
+local function GripAxis(body, index)
+	local pelvis = Bone(body, "ValveBiped.Bip01_Pelvis")
+	if index == 1 then
+		local neck = Bone(body, "ValveBiped.Bip01_Neck1")
+		if pelvis and neck then return pelvis, neck, 9 end
+	else
+		local l, r = Bone(body, "ValveBiped.Bip01_L_Calf"), Bone(body, "ValveBiped.Bip01_R_Calf")
+		if pelvis and l and r then return pelvis, (l + r) * 0.5, 8 end
+	end
+	local c = body:WorldSpaceCenter()
+	return c - vector_up * 14, c + vector_up * 14, 9
+end
+
+-- A leg wrapped round the body: an arch from the root to the near end of the
+-- axis, then a helix climbing to the far end over WRAP_TIME.
+local function Coil(st, leg, role, root, a, b, r, bulge, t)
+	if root:DistToSqr(b) < root:DistToSqr(a) then a, b = b, a end
+	local axis = b - a
+	local span = axis:Length()
+	axis = axis / math.max(span, 1)
+	local u = axis:Cross(bulge)
+	if u:LengthSqr() < 1e-4 then u = axis:Angle():Right() end
+	u:Normalize()
+	local v = axis:Cross(u)
+
+	r = r + leg.width * 0.6
 	local climb = math.Clamp(t / WRAP_TIME, 0, 1)
-	local squeeze = math.Clamp((t - WRAP_TIME) / (SNAP_TIME - WRAP_TIME), 0, 1)
-	local r = math.max(maxs.x - mins.x, maxs.y - mins.y) * 0.4 * (1 - 0.3 * squeeze) + leg.width * 0.6
+	local turns = 2 + (leg.phase % 1) * 0.8
+	local spin = role.index % 2 == 0 and 1 or -1
+	local theta0 = leg.phase
 
-	local k, count = role.index, role.count
-	local zFrom = height * (0.12 + 0.55 * (k - 1) / count)
-	local zTo = k == count and height * 0.86 or math.min(height * 0.9, zFrom + height * 0.4)
-	local turns = 1.6 + (leg.phase % 1) * 0.8
-	local spin = k % 2 == 0 and 1 or -1
-	local theta0 = k / count * math.pi * 2 + leg.phase
-
-	local entry = base + Vector(math.cos(theta0) * r, math.sin(theta0) * r, zFrom)
-	local mid = (root + entry) * 0.5 + vector_up * (root:Distance(entry) * 0.3)
+	local entry = a + (u * math.cos(theta0) + v * math.sin(theta0)) * r
+	local mid = (root + entry) * 0.5 + bulge * (root:Distance(entry) * 0.3)
 
 	local pts = st.coil or {}
 	st.coil = pts
 	for i = 1, REACH_POINTS do
-		local u = (i - 1) / REACH_POINTS
-		pts[i] = root * ((1 - u) ^ 2) + mid * (2 * (1 - u) * u) + entry * (u * u)
+		local f = (i - 1) / REACH_POINTS
+		pts[i] = root * ((1 - f) ^ 2) + mid * (2 * (1 - f) * f) + entry * (f * f)
 	end
 
 	local helix = COIL_POINTS - REACH_POINTS
 	for i = 0, helix - 1 do
-		local u = i / (helix - 1) * climb
-		local theta = theta0 + spin * u * turns * math.pi * 2
-		local rr = r + math.sin(now * 40 + i) * squeeze * 1.5
-		pts[REACH_POINTS + 1 + i] = base + Vector(math.cos(theta) * rr, math.sin(theta) * rr, zFrom + (zTo - zFrom) * u)
+		local f = i / (helix - 1) * climb
+		local theta = theta0 + spin * f * turns * math.pi * 2
+		pts[REACH_POINTS + 1 + i] = a + axis * (span * f) + (u * math.cos(theta) + v * math.sin(theta)) * r
 	end
 end
 
@@ -220,8 +244,8 @@ function ENT:UpdateLimbs()
 
 	local fwd, left, up = ang:Forward(), -ang:Right(), ang:Up()
 
-	if self.RolesAct ~= act or self.RolesStart ~= actStart then
-		self.RolesAct, self.RolesStart = act, actStart
+	if self.RolesAct ~= act or self.RolesStart ~= actStart or self.RolesVictim ~= victim then
+		self.RolesAct, self.RolesStart, self.RolesVictim = act, actStart, victim
 		self.Roles = self:AssignRoles(morph, act, victim, pos, fwd, left)
 	end
 	local function toWorld(v) return pos + fwd * v.x + left * v.y + up * v.z end
@@ -305,10 +329,24 @@ function ENT:UpdateLimbs()
 			foot = LerpVector(Smooth(st.raise), foot, aim)
 		end
 
-		-- legs put to work: holding the body, or picking at it
+		-- legs put to work: striking, holding the body, or picking at it
 		local role = self.Roles[limb]
 		if role and IsValid(victim) then
-			if act == ACT_DRAG then
+			if act == ACT_STRIKE then
+				-- rear up and back from the victim, trembling, then whip through it
+				local t = now - actStart
+				local chest = Chest(victim)
+				local away = root - chest
+				away = (away - up * away:Dot(up)):GetNormalized()
+				local cocked = root + up * (limb.length * 0.55) + away * (limb.length * 0.2)
+					+ Wobble(now * 9, limb.phase, limb.freq) * (limb.length * 0.015)
+				if t < WINDUP then
+					foot = LerpVector(Smooth(t / WINDUP), foot, cocked)
+				else
+					local f = math.min(1, (t - WINDUP) / LUNGE)
+					foot = LerpVector(f * f, cocked, chest + (chest - root):GetNormalized() * 8)
+				end
+			elseif act == ACT_DRAG then
 				foot = Chest(victim)
 			elseif act == ACT_FEED then
 				local meat = victim:GetBonePosition(role.bone) or victim:WorldSpaceCenter()
@@ -319,9 +357,12 @@ function ENT:UpdateLimbs()
 
 		Pose(st, limb, root, foot, up * (limb.length * 0.35), now, shake)
 
-		local coiling = role and act == ACT_CONSTRICT and IsValid(victim)
-		if coiling then Coil(st, limb, role, root, victim, now - actStart, now) end
-		st.wrap = math.Approach(st.wrap, coiling and 1 or 0, dt * (coiling and 3.5 or 2.5))
+		local coiling = role and act == ACT_DRAG and IsValid(victim)
+		if coiling then
+			local a, b, r = GripAxis(victim, role.index)
+			Coil(st, limb, role, root, a, b, r, up, now - actStart)
+		end
+		st.wrap = math.Approach(st.wrap, coiling and 1 or 0, dt * (coiling and 12 or 2.5))
 	end
 end
 
