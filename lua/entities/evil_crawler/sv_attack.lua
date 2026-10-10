@@ -1,10 +1,13 @@
--- How it kills: one leg rears back and whips into an NPC hard enough to
--- drop it dead on the spot, and coils round the body as it falls. That leg
--- is done walking until it lets go: it drags the body somewhere out of sight,
--- hauls it up into the tangle the legs grow from, and holds it there, turning
--- it over, while other legs stab into it and tear pieces away for the small
--- mouths along them to swallow. Players are never attacked.
+-- How it feeds: one leg rears back and whips into an NPC hard enough to
+-- knock it senseless, and coils round the body as it falls. It eats them
+-- alive (sv_victim.lua keeps them that way). That leg is done walking until it
+-- lets go: it drags the body somewhere out of sight, hauls it up into the
+-- tangle the legs grow from, and holds it there, turning it over, while other
+-- legs stab into it and tear pieces away for the small mouths along them to
+-- swallow. Too long finding somewhere quiet and they come to on the way.
+-- Players are never attacked.
 
+local Victim = EvilCrawler.Victim
 local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
 	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
 local IMPACT_TIME = EvilCrawler.STRIKE_WINDUP + EvilCrawler.STRIKE_LUNGE
@@ -35,7 +38,6 @@ local HIT_SOUNDS = {
 	"physics/body/body_medium_impact_hard4.wav",
 	"physics/body/body_medium_impact_hard6.wav",
 }
-local SNAP_SOUNDS = { "npc/barnacle/neck_snap1.wav", "npc/barnacle/neck_snap2.wav" }
 local STAB_SOUNDS = {
 	"physics/flesh/flesh_impact_bullet1.wav",
 	"physics/flesh/flesh_impact_bullet3.wav",
@@ -81,7 +83,7 @@ function ENT:StartStrike(npc)
 end
 
 -- Ends whatever it's doing. A victim that dodged the strike is fair game
--- again; a corpse is left where it lies.
+-- again; a body is let go, to get up later if there's anything left of it.
 function ENT:Release()
 	local victim = self:GetVictim()
 	if IsValid(victim) and victim:IsNPC() and victim.EvilCrawlerVictim == self then
@@ -94,50 +96,6 @@ function ENT:Release()
 	self.BiteStage = nil
 end
 
--- Moves a ragdoll's bones into the NPC's current pose, so the kill flows
--- straight into a limp body.
-local function PoseCorpse(rag, npc)
-	for i = 0, rag:GetPhysicsObjectCount() - 1 do
-		local phys = rag:GetPhysicsObjectNum(i)
-		local m = npc:GetBoneMatrix(rag:TranslatePhysBoneToBone(i))
-		if IsValid(phys) and m then
-			phys:SetPos(m:GetTranslation())
-			phys:SetAngles(m:GetAngles())
-			phys:Wake()
-		end
-	end
-
-	-- wrench the head round past where a neck allows
-	local head = rag:LookupBone("ValveBiped.Bip01_Head1")
-	local phys = head and rag:GetPhysicsObjectNum(rag:TranslateBoneToPhysBone(head))
-	if IsValid(phys) then phys:AddAngleVelocity(Vector(0, 0, 2000)) end
-end
-
--- A ragdoll standing in for the NPC, or nil if that can't be done.
-local function MakeCorpse(npc)
-	local rag = ents.Create("prop_ragdoll")
-	if not IsValid(rag) then return end
-	rag:SetModel(npc:GetModel())
-	rag:SetPos(npc:GetPos())
-	rag:SetAngles(npc:GetAngles())
-	rag:SetSkin(npc:GetSkin())
-	for _, group in ipairs(npc:GetBodyGroups()) do
-		rag:SetBodygroup(group.id, npc:GetBodygroup(group.id))
-	end
-	rag:Spawn()
-	rag:Activate()
-
-	local ok, err = pcall(PoseCorpse, rag, npc)
-	if not ok or rag:GetPhysicsObjectCount() == 0 then
-		if not ok then ErrorNoHalt("[evil_crawler] couldn't pose corpse: " .. tostring(err) .. "\n") end
-		rag:Remove()
-		return
-	end
-
-	rag:SetCollisionGroup(COLLISION_GROUP_WEAPON)
-	return rag
-end
-
 local function Smooth(t)
 	return t * t * (3 - 2 * t)
 end
@@ -148,7 +106,7 @@ local function Chest(corpse)
 	return corpse:GetPhysicsObjectNum(index >= 0 and index or 0)
 end
 
--- The leg lands: the NPC drops as a corpse thrown along the blow, already
+-- The leg lands: the NPC drops senseless, thrown along the blow, already
 -- caught in the leg's coil.
 function ENT:Strike(npc)
 	local now = CurTime()
@@ -156,7 +114,6 @@ function ENT:Strike(npc)
 	local dir = (center - self:GetPos()):GetNormalized()
 
 	sound.Play(HIT_SOUNDS[math.random(#HIT_SOUNDS)], center, 85, math.random(80, 95))
-	sound.Play(SNAP_SOUNDS[math.random(#SNAP_SOUNDS)], npc:EyePos(), 80, math.random(90, 105))
 	local fx = EffectData()
 	fx:SetOrigin(center)
 	fx:SetNormal(-dir)
@@ -165,7 +122,7 @@ function ENT:Strike(npc)
 
 	if npc.DropWeapon and IsValid(npc:GetActiveWeapon()) then npc:DropWeapon() end
 
-	local corpse = MakeCorpse(npc)
+	local corpse = Victim.KnockOut(npc, self)
 	if not IsValid(corpse) then
 		-- no ragdoll to be had: kill it outright and leave it
 		local dmg = DamageInfo()
@@ -184,10 +141,6 @@ function ENT:Strike(npc)
 		local phys = corpse:GetPhysicsObjectNum(i)
 		if IsValid(phys) then phys:SetVelocity(knock) end
 	end
-
-	hook.Run("OnNPCKilled", npc, self, self)
-	npc.EvilCrawlerVictim = nil
-	npc:Remove()
 
 	self:SetVictim(corpse)
 	self.StruckAt = now
@@ -326,6 +279,7 @@ function ENT:Rip(phys, corpse)
 	util.Decal("Blood", p, p - up * 200 + VectorRand() * 40, corpse)
 	sound.Play(RIP_SOUNDS[math.random(#RIP_SOUNDS)], p, 72, math.random(85, 110), 0.8)
 
+	Victim.Wound(corpse, self)
 	self.Eaten = (self.Eaten or 0) + 1
 	local k = math.min(1, self.Eaten / DRAINED)
 	corpse:SetColor(Color(255 - 150 * k, 255 - 205 * k, 255 - 205 * k))
@@ -353,7 +307,12 @@ function ENT:Feed(corpse, now)
 		if last and stage ~= last and stage % 3 ~= 0 then
 			local phys = BitePhys(corpse, BiteBone(seed, k, n))
 			if phys then
-				if stage % 3 == 1 then self:Stab(phys) else self:Rip(phys, corpse) end
+				if stage % 3 == 1 then
+					self:Stab(phys)
+					Victim.Pierced(corpse)
+				else
+					self:Rip(phys, corpse)
+				end
 			end
 		end
 	end
@@ -372,6 +331,7 @@ function ENT:PonderAct(now)
 		self.Goal = nil
 	elseif act == ACT_DRAG then
 		self.Goal = self.Lair
+		if Victim.Awake(self:GetVictim()) then self.Pace = 1 end -- they're making a racket
 		if self:Reached(self.Lair) or now > self.ActDeadline then
 			self:SetAct(ACT_FEED)
 			self:SetActStart(now)
@@ -383,6 +343,7 @@ function ENT:PonderAct(now)
 		if self:Disturbed() then
 			self:StartDrag(now) -- someone came close: take it somewhere else
 		elseif now > self.FeedUntil then
+			if Victim.Alive(self:GetVictim()) then Victim.Kill(self:GetVictim(), self) end
 			self.SatedUntil = now + SATED_TIME
 			self:Release()
 		end
