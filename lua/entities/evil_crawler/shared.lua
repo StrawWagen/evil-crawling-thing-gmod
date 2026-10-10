@@ -8,6 +8,7 @@ EvilCrawler.ACT_FEED = 3
 EvilCrawler.STRIKE_WINDUP = 0.4 -- one leg rears back, trembling
 EvilCrawler.STRIKE_LUNGE = 0.08 -- then whips into the victim
 EvilCrawler.WRAP_TIME = 0.15 -- and coils round the body as it drops
+EvilCrawler.PULL_TIME = 2 -- somewhere quiet, it hauls the body up into the tangle before eating
 
 ENT.Type = "anim"
 ENT.Base = "base_anim"

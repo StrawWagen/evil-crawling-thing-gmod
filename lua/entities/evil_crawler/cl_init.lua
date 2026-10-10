@@ -14,7 +14,9 @@ local LOD_DISTANCE = 1500
 local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
 	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
 local WINDUP, LUNGE, WRAP_TIME = EvilCrawler.STRIKE_WINDUP, EvilCrawler.STRIKE_LUNGE, EvilCrawler.WRAP_TIME
-local ROLE_COUNT = { [ACT_STRIKE] = 1, [ACT_DRAG] = 2, [ACT_FEED] = 4 } -- legs put to work per act
+local PULL_TIME = EvilCrawler.PULL_TIME
+-- legs put to work per act; the first one holds the body while dragging and feeding
+local ROLE_COUNT = { [ACT_STRIKE] = 1, [ACT_DRAG] = 1, [ACT_FEED] = 5 }
 local COIL_POINTS = 26 -- a coiled leg is drawn through this many points
 local REACH_POINTS = 8 -- of which this many reach from the root to the victim
 
@@ -114,7 +116,7 @@ function ENT:AssignRoles(morph, act, victim, pos, fwd, left)
 	end)
 	if act == ACT_STRIKE then
 		self.Striker = order[1]
-	elseif act == ACT_DRAG and self.Striker then
+	elseif self.Striker then
 		table.RemoveByValue(order, self.Striker)
 		table.insert(order, 1, self.Striker)
 	end
@@ -126,17 +128,12 @@ function ENT:AssignRoles(morph, act, victim, pos, fwd, left)
 	return roles
 end
 
--- Where a holding leg coils on the body, as an axis to wrap round and a
--- radius: the first round the torso, the rest round both thighs together.
-local function GripAxis(body, index)
+-- Where the holding leg coils on the body: round the torso, as an axis to
+-- wrap round and a radius.
+local function GripAxis(body)
 	local pelvis = Bone(body, "ValveBiped.Bip01_Pelvis")
-	if index == 1 then
-		local neck = Bone(body, "ValveBiped.Bip01_Neck1")
-		if pelvis and neck then return pelvis, neck, 9 end
-	else
-		local l, r = Bone(body, "ValveBiped.Bip01_L_Calf"), Bone(body, "ValveBiped.Bip01_R_Calf")
-		if pelvis and l and r then return pelvis, (l + r) * 0.5, 8 end
-	end
+	local neck = Bone(body, "ValveBiped.Bip01_Neck1")
+	if pelvis and neck then return pelvis, neck, 9 end
 	local c = body:WorldSpaceCenter()
 	return c - vector_up * 14, c + vector_up * 14, 9
 end
@@ -290,11 +287,25 @@ function ENT:UpdateLimbs()
 		st.target, st.grounded = target, grounded
 		st.foot = st.foot or target
 
-		local threatened = threatYaw and not st.stepping
+		-- legs put to work on the victim are done walking: they drop out of
+		-- the gait until they let go, then step back in from wherever they are.
+		-- The feeding legs wait for the body to be hauled in first.
+		local role = self.Roles[limb]
+		if role and (not IsValid(victim) or (act == ACT_FEED and role.index > 1 and now - actStart < PULL_TIME)) then
+			role = nil
+		end
+		if role and st.stepping then
+			st.stepping = false
+			airborne = airborne - 1
+		end
+
+		local threatened = threatYaw and not role and not st.stepping
 			and math.abs(math.AngleDifference(limb.angle, threatYaw)) < THREAT_ARC
 		st.raise = math.Approach(st.raise, threatened and 1 or 0, dt * 2.5)
 
-		if st.stepping then
+		if role then
+			-- busy with the victim
+		elseif st.stepping then
 			st.t = st.t + dt / (limb.stepTime * hurry)
 			if st.t >= 1 then
 				st.stepping = false
@@ -330,8 +341,8 @@ function ENT:UpdateLimbs()
 		end
 
 		-- legs put to work: striking, holding the body, or picking at it
-		local role = self.Roles[limb]
-		if role and IsValid(victim) then
+		local holding = role and (act == ACT_DRAG or act == ACT_FEED) and role.index == 1
+		if role then
 			if act == ACT_STRIKE then
 				-- rear up and back from the victim, trembling, then whip through it
 				local t = now - actStart
@@ -346,7 +357,7 @@ function ENT:UpdateLimbs()
 					local f = math.min(1, (t - WINDUP) / LUNGE)
 					foot = LerpVector(f * f, cocked, chest + (chest - root):GetNormalized() * 8)
 				end
-			elseif act == ACT_DRAG then
+			elseif holding then
 				foot = Chest(victim)
 			elseif act == ACT_FEED then
 				local meat = victim:GetBonePosition(role.bone) or victim:WorldSpaceCenter()
@@ -357,12 +368,13 @@ function ENT:UpdateLimbs()
 
 		Pose(st, limb, root, foot, up * (limb.length * 0.35), now, shake)
 
-		local coiling = role and act == ACT_DRAG and IsValid(victim)
-		if coiling then
-			local a, b, r = GripAxis(victim, role.index)
-			Coil(st, limb, role, root, a, b, r, up, now - actStart)
+		if holding and not st.holdSince then st.holdSince = now end
+		if not holding then st.holdSince = nil end
+		if holding then
+			local a, b, r = GripAxis(victim)
+			Coil(st, limb, role, root, a, b, r, up, now - st.holdSince)
 		end
-		st.wrap = math.Approach(st.wrap, coiling and 1 or 0, dt * (coiling and 12 or 2.5))
+		st.wrap = math.Approach(st.wrap, holding and 1 or 0, dt * (holding and 12 or 2.5))
 	end
 end
 

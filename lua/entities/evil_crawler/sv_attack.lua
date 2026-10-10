@@ -1,7 +1,8 @@
 -- How it kills: one leg rears back and whips into an NPC hard enough to
--- drop it dead on the spot, and coils round the body as it falls. Then it
--- drags the body somewhere out of sight and feeds on it with the small mouths
--- along its legs. Players are never attacked.
+-- drop it dead on the spot, and coils round the body as it falls. That leg
+-- is done walking until it lets go: it drags the body somewhere out of sight,
+-- hauls it up into the tangle the legs grow from, and holds it there while the
+-- small mouths along the other legs feed. Players are never attacked.
 
 local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
 	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
@@ -11,6 +12,8 @@ local ATTACK_REACH = 140
 local MISS_REACH = ATTACK_REACH * 1.5 -- got this far away during the windup: the strike misses
 local KNOCK = 350 -- how hard the strike throws the body
 local YANK_TIME = 0.5 -- the body flies loose this long before the leg reels it in
+local PULL_TIME = EvilCrawler.PULL_TIME
+local TRAIL_RATE = 1.5 -- how fast a carried body swings round behind it
 local DRAG_TIME = 15 -- gives up looking for somewhere private after this long and eats where it is
 local FEED_TIME = 15
 local SATED_TIME = 90
@@ -73,6 +76,7 @@ function ENT:Release()
 	self:SetVictim(NULL)
 	self:SetAct(ACT_NONE)
 	self.Lair = nil
+	self.CarryDir = nil
 end
 
 -- Moves a ragdoll's bones into the NPC's current pose, so the kill flows
@@ -117,6 +121,10 @@ local function MakeCorpse(npc)
 
 	rag:SetCollisionGroup(COLLISION_GROUP_WEAPON)
 	return rag
+end
+
+local function Smooth(t)
+	return t * t * (3 - 2 * t)
 end
 
 local function Chest(corpse)
@@ -168,6 +176,7 @@ function ENT:Strike(npc)
 
 	self:SetVictim(corpse)
 	self.StruckAt = now
+	self.CarryDir = dir
 	self:StartDrag(now)
 end
 
@@ -220,12 +229,36 @@ function ENT:Disturbed()
 	return false
 end
 
--- The body hangs by its chest from beneath the legs, wherever it crawls.
--- With a loose grip it keeps more of its own momentum.
-function ENT:HoldCorpse(corpse, stiffness, grip)
+-- How far into the haul up into the tangle, 0..1. Reeled in by jerks.
+function ENT:Pull(now)
+	if self:GetAct() ~= ACT_FEED then return 0 end
+	local t = now - self:GetActStart()
+	return math.Clamp((t + 0.06 * math.sin(t * 12)) / PULL_TIME, 0, 1)
+end
+
+-- Where the holding leg keeps the body: carried low at the leg's length,
+-- swinging round to trail behind as it crawls, and hauled up into the tangle
+-- once it's somewhere quiet.
+function ENT:HoldPoint(now, dt)
+	local pos, up, h = self:GetPos(), self.BodyUp, self.BodyHeight
+	local dir = self.CarryDir or -self.Facing
+	if self.Vel:LengthSqr() > 400 then
+		dir = LerpVector(1 - math.exp(-dt * TRAIL_RATE), dir, -self.Facing)
+	end
+	dir = dir - up * dir:Dot(up)
+	if dir:LengthSqr() < 1e-4 then dir = -self.Facing end
+	dir:Normalize()
+	self.CarryDir = dir
+
+	local carry = pos - up * (h * 0.6) + dir * (h * 1.1)
+	return LerpVector(Smooth(self:Pull(now)), carry, pos)
+end
+
+-- The body hangs from the holding leg by its chest. With a loose grip it
+-- keeps more of its own momentum.
+function ENT:HoldCorpse(corpse, hold, stiffness, grip)
 	local phys = Chest(corpse)
 	if not IsValid(phys) then return end
-	local hold = self:GetPos() - self.BodyUp * (self.BodyHeight * 0.55)
 	local p = phys:GetPos()
 	if p:Distance(hold) > 600 then
 		self:Release() -- snagged on something; leave it
@@ -261,7 +294,7 @@ function ENT:PonderAct(now)
 			self:SetAct(ACT_FEED)
 			self:SetActStart(now)
 			self:SetState("feed")
-			self.FeedUntil = now + FEED_TIME
+			self.FeedUntil = now + PULL_TIME + FEED_TIME
 		end
 	elseif act == ACT_FEED then
 		self.Goal = nil
@@ -304,8 +337,10 @@ function ENT:UpdateAct(now)
 		end
 	else
 		local grip = math.Clamp((now - (self.StruckAt or 0)) / YANK_TIME, 0.05, 1)
-		self:HoldCorpse(victim, act == ACT_FEED and 4 or 8, grip * grip)
-		if self:GetAct() == ACT_FEED and now >= (self.NextBite or 0) then self:Bite(victim) end
+		self:HoldCorpse(victim, self:HoldPoint(now, FrameTime()), 8, grip * grip)
+		if self:GetAct() == ACT_FEED and self:Pull(now) >= 1 and now >= (self.NextBite or 0) then
+			self:Bite(victim)
+		end
 	end
 end
 
