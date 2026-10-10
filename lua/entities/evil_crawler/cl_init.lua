@@ -110,7 +110,7 @@ function ENT:AssignRoles(morph, act, victim, pos, fwd, left)
 
 	local d = victim:WorldSpaceCenter() - pos
 	local yaw = math.deg(math.atan2(d:Dot(left), d:Dot(fwd)))
-	local order = table.Copy(morph.legs)
+	local order = { unpack(morph.legs) } -- the legs themselves, not copies
 	table.sort(order, function(a, b)
 		return math.abs(math.AngleDifference(a.angle, yaw)) < math.abs(math.AngleDifference(b.angle, yaw))
 	end)
