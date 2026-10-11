@@ -247,9 +247,9 @@ function Victim.Alive(rag)
 	return IsValid(rag) and IsValid(rag.EvilCrawlerNPC)
 end
 
--- Gone under: limp, quiet, ready to be eaten.
-function Victim.Asleep(rag)
-	return Victim.Alive(rag) and rag.Sedation >= 1
+-- Still alive and not yet gone under.
+function Victim.Fighting(rag)
+	return Victim.Alive(rag) and rag.Sedation < 1
 end
 
 -- How much of them is still there to fight and cry out, 0..1.

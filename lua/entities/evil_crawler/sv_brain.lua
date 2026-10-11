@@ -39,6 +39,8 @@ local ANGER_MAX = 3
 local ANGER_FADE = 180 -- seconds for each step of anger to wear off
 local ANGER_PACE = 0.15 -- each step of anger makes it this much quicker on someone's trail
 local PAIN_SOUNDS = { "npc/barnacle/barnacle_die1.wav", "npc/barnacle/barnacle_die2.wav" }
+local PAIN_HIT_SOUND = "physics/flesh/flesh_squishy_impact_hard2.wav"
+local SHOT_RADIUS = 0.9 -- body heights round the tangle that a bullet counts as hitting the legs
 
 local PACE = { roam = 0.45, search = 0.6, track = 0.85, hunt = 1.25, strike = 0, drag = 0.7, feed = 0, flee = 1.5, hide = 0 }
 local MOOD = { roam = 0, search = 1, track = 1, hunt = 2, strike = 2, drag = 1, feed = 1, flee = 2, hide = 0 }
@@ -269,11 +271,14 @@ function ENT:Steer()
 	return self.Goal, pace
 end
 
--- Shot, stabbed, blown up: it lets go of whatever it has and runs.
 function ENT:OnTakeDamage(dmg)
 	if dmg:GetDamage() <= 0 then return end
+	self:Hurt(dmg:GetAttacker(), dmg:GetDamagePosition())
+end
+
+-- Shot, stabbed, blown up: it lets go of whatever it has and runs.
+function ENT:Hurt(attacker, from)
 	local now = CurTime()
-	local attacker = dmg:GetAttacker()
 
 	if now >= (self.NextPain or 0) then
 		self.NextPain = now + 1.5
@@ -287,11 +292,56 @@ function ENT:OnTakeDamage(dmg)
 	self.CalmAt = now + ANGER_FADE
 	self:SetPrey(NULL)
 	self:SetState("flee")
-	self.Goal = self:FindLair(IsValid(attacker) and attacker:GetPos() or dmg:GetDamagePosition())
+	self.Goal = self:FindLair(IsValid(attacker) and attacker:GetPos() or from)
 	self.FleeUntil = now + FLEE_TIME
 	self.Trail = nil
 	self.DetourUntil = nil
 end
+
+-- Where a shot from `src` along `dir` first meets the legs, and how far
+-- along, if it does before `range` and nothing else is in the way. The legs
+-- are only drawn on clients, so the server counts a ball round the tangle.
+function ENT:ShotHits(src, dir, range, shooter)
+	local center = self:GetPos()
+	local r = self.BodyHeight * SHOT_RADIUS
+	local t = (center - src):Dot(dir)
+	local miss = (src + dir * t):DistToSqr(center)
+	if t < 0 or miss > r * r then return end
+	local enter = math.max(0, t - math.sqrt(r * r - miss))
+	if enter > range then return end
+
+	local hit = src + dir * enter
+	local tr = util.TraceLine({ start = src, endpos = hit, mask = MASK_SHOT, filter = shooter })
+	if tr.Hit and tr.Entity ~= self then return end
+	return hit, enter
+end
+
+-- Bullets are caught by hand: the legs have no collision of their own.
+hook.Add("EntityFireBullets", "EvilCrawlerShot", function(shooter, data)
+	local dir = data.Dir:GetNormalized()
+	local range = data.Distance or 56756
+	local filter = { shooter, data.IgnoreEntity }
+	local struck, hit, nearest
+	for _, crawler in ipairs(ents.FindByClass("evil_crawler")) do
+		local p, d = crawler:ShotHits(data.Src, dir, range, filter)
+		if p and (not nearest or d < nearest) then struck, hit, nearest = crawler, p, d end
+	end
+	if not struck then return end
+
+	local fx = EffectData()
+	fx:SetOrigin(hit)
+	fx:SetNormal(-dir)
+	fx:SetColor(BLOOD_COLOR_YELLOW)
+	util.Effect("BloodImpact", fx)
+	sound.Play(PAIN_HIT_SOUND, hit, 70, math.random(90, 110), 0.7)
+
+	local attacker = IsValid(data.Attacker) and data.Attacker or shooter
+	struck:Hurt(attacker, hit)
+
+	-- the bullet stops in the legs
+	data.Distance = nearest
+	return true
+end)
 
 -- Running, then hiding until it's sure. True while it wants nothing else.
 function ENT:LyingLow(now)

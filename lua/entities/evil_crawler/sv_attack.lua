@@ -373,7 +373,7 @@ function ENT:PonderAct(now)
 	elseif act == ACT_DRAG then
 		self.Goal = self.Lair
 		local there = self:Reached(self.Lair) or now > self.ActDeadline
-		if there and not Victim.Asleep(self:GetVictim()) then
+		if there and Victim.Fighting(self:GetVictim()) then
 			-- holds them there until they stop fighting, unless someone comes
 			self.Goal = nil
 			if self:Disturbed() then self:StartDrag(now) end
