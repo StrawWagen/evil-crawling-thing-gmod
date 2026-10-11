@@ -1,24 +1,33 @@
--- What happens to the NPCs a crawler strikes. The strike doesn't kill: the
--- NPC is put away, frozen and hidden, and a ragdoll lies in for it, out cold.
--- Left long enough it comes to. Still held, it screams and fights the leg;
--- dropped, it gets back up and runs, unless it's missing a part, in which
--- case it lies where it's dropped and bleeds out. It dies once it's been
--- eaten enough, when its head goes, or when someone shoots the body.
+-- What happens to the NPCs a crawler grabs. The NPC is put away, frozen and
+-- hidden, and a ragdoll lies in for it, wide awake. It fights the leg and
+-- screams while small teeth along the coil work something into it, and over
+-- a few seconds it goes under: thrashing, then whimpering, then asleep.
+-- Dropped, it wears off; once it can, it gets back up and runs, unless it's
+-- missing a part, in which case it lies where it's dropped and bleeds out. It
+-- dies once it's been eaten enough, when its head goes, or when someone
+-- shoots the body.
 EvilCrawler = EvilCrawler or {}
 local Victim = EvilCrawler.Victim or {}
 EvilCrawler.Victim = Victim
 
-local cv_knockout = CreateConVar("evil_crawler_knockout", "12", FCVAR_ARCHIVE, "Seconds a struck NPC stays out cold, give or take a quarter")
+local cv_sedate = CreateConVar("evil_crawler_sedate_time", "10", FCVAR_ARCHIVE, "Seconds a held NPC takes to go under")
 
-local GETUP_TIME = 2 -- lies there this long after it's let go before getting up
+local WEAR_OFF = 20 -- seconds for being fully under to wear off once it's let go
+local GETUP_SEDATION = 0.35 -- gets up once it's worn off this far
+local GETUP_TIME = 2 -- lies there at least this long after it's let go before getting up
 local SETTLED = 60 -- and not until the body has stopped tumbling
 local THRASH_FORCE = 450
 local WOUND = { 0.08, 0.13 } -- share of max health each piece torn away costs
 local FADING = 0.3 -- below this share of health, too far gone to scream
 local CRY_FEAR = { radius = 900, time = 30 } -- NPCs this close to a cry are frightened this long
-local STRIKE_FEAR = { radius = 600, time = 20 } -- and to the strike
+local STRIKE_FEAR = { radius = 600, time = 20 } -- and to the grab
 local ESCAPE_FEAR = 90 -- an NPC that got away stays frightened this long
 local BLEED = 0.02 -- share of max health lost a second once a part is gone
+
+local NIP_SOUNDS = {
+	"physics/flesh/flesh_impact_bullet2.wav",
+	"physics/flesh/flesh_impact_bullet4.wav",
+}
 
 Victim.bodies = Victim.bodies or {} -- every ragdoll standing in for a live NPC
 
@@ -156,8 +165,20 @@ local function Thrash(rag, strength, kicks)
 	end
 end
 
--- Moves a ragdoll's bones into the NPC's current pose, so the strike flows
--- straight into a limp body.
+-- A few small teeth through the clothes.
+local function Nip(rag)
+	local phys = PhysOf(rag, LIMBS[math.random(#LIMBS)])
+	if not phys then return end
+	local p = phys:GetPos()
+	local fx = EffectData()
+	fx:SetOrigin(p)
+	fx:SetNormal(VectorRand())
+	util.Effect("BloodImpact", fx)
+	sound.Play(NIP_SOUNDS[math.random(#NIP_SOUNDS)], p, 55, math.random(130, 160), 0.4)
+end
+
+-- Moves a ragdoll's bones into the NPC's current pose, so the grab flows
+-- straight into the body in the leg's coil.
 local function Pose(rag, npc)
 	for i = 0, rag:GetPhysicsObjectCount() - 1 do
 		local phys = rag:GetPhysicsObjectNum(i)
@@ -181,9 +202,9 @@ local function Hide(npc)
 	npc:ClearSchedule()
 end
 
--- Knocks the NPC out cold and returns the ragdoll lying in for it, held by
+-- Takes the NPC in hand and returns the ragdoll lying in for it, held by
 -- `holder`, or nil if no ragdoll can be had.
-function Victim.KnockOut(npc, holder)
+function Victim.Grab(npc, holder)
 	local rag = ents.Create("prop_ragdoll")
 	if not IsValid(rag) then return end
 	rag:SetModel(npc:GetModel())
@@ -208,22 +229,17 @@ function Victim.KnockOut(npc, holder)
 	npc.EvilCrawlerBody = rag
 	Hide(npc)
 
-	local knockout = cv_knockout:GetFloat()
 	rag.EvilCrawlerNPC = npc
 	rag.EvilCrawlerHolder = holder
 	rag.EvilCrawlerVoice = VoiceOf(npc, rag)
 	rag.EvilCrawlerPitch = math.random(94, 106)
-	rag.WakeAt = CurTime() + knockout * math.Rand(0.75, 1.25)
+	rag.Sedation = 0
+	rag.NextCry = CurTime() + math.Rand(0.8, 1.4)
 	Victim.bodies[rag] = true
 	EvilCrawler.Scent.Frighten(rag:GetPos(), STRIKE_FEAR.radius, STRIKE_FEAR.time)
 
-	-- the blow knocks the cry clean out of them
-	local cry = Say(rag, "pain", 80)
-	if cry then
-		timer.Simple(0.18, function()
-			if IsValid(rag) then rag:StopSound(cry) end
-		end)
-	end
+	Say(rag, "wake")
+	Thrash(rag, 1.6, 6)
 	return rag
 end
 
@@ -231,8 +247,14 @@ function Victim.Alive(rag)
 	return IsValid(rag) and IsValid(rag.EvilCrawlerNPC)
 end
 
-function Victim.Awake(rag)
-	return Victim.Alive(rag) and rag.Awake == true
+-- Gone under: limp, quiet, ready to be eaten.
+function Victim.Asleep(rag)
+	return Victim.Alive(rag) and rag.Sedation >= 1
+end
+
+-- How much of them is still there to fight and cry out, 0..1.
+local function Lucid(rag)
+	return 1 - rag.Sedation
 end
 
 -- The body is just a body now.
@@ -242,7 +264,7 @@ function Victim.Kill(rag, attacker)
 	Victim.bodies[rag] = nil
 	rag.EvilCrawlerNPC = nil
 
-	if rag.Awake then Say(rag, "die", 75) end
+	if Lucid(rag) > 0.3 then Say(rag, "die", 75) end
 	Thrash(rag, 1.5, 4)
 
 	npc.EvilCrawlerBody = nil
@@ -265,20 +287,23 @@ function Victim.Wound(rag, attacker)
 	Victim.Hurt(rag, math.max(1, npc:GetMaxHealth()) * math.Rand(WOUND[1], WOUND[2]), attacker)
 end
 
--- A leg drives into them. Nobody sleeps through that.
+-- A leg drives into them. Under, they barely stir; anyone still lucid
+-- screams with every one.
 function Victim.Pierced(rag)
 	local npc = rag.EvilCrawlerNPC
 	if not IsValid(npc) then return end
-	if not rag.Awake then
-		rag.Awake = true
-		rag.NextCry = CurTime() + 1
+	local lucid = Lucid(rag)
+	if lucid <= 0 then
+		Thrash(rag, 0.4, 1)
+		if math.random() < 0.15 then Say(rag, "die", 55) end
+		return
 	end
 	if npc:Health() / math.max(1, npc:GetMaxHealth()) > FADING then
 		Say(rag, "pain", 95)
 	elseif math.random() < 0.5 then
 		Say(rag, "die", 65)
 	end
-	Thrash(rag, 1.2, 3)
+	Thrash(rag, 1.2 * lucid, 3)
 end
 
 -- A part of them has been eaten away. Without a head that's the end of it;
@@ -286,7 +311,7 @@ end
 function Victim.Maimed(rag, bone, attacker)
 	if not Victim.Alive(rag) then return end
 	if bone == "ValveBiped.Bip01_Head1" then
-		rag.Awake = false -- nothing left to cry out with
+		rag.Sedation = 1 -- nothing left to cry out with
 		Victim.Kill(rag, attacker)
 		return
 	end
@@ -341,14 +366,14 @@ local function Update(rag, now)
 	local eaten = held and holder:GetAct() == EvilCrawler.ACT_FEED
 	if held then rag.LetGoAt = nil else rag.LetGoAt = rag.LetGoAt or now end
 
-	if not rag.Awake then
-		-- once it's started eating, the first stab wakes them instead
-		if now < rag.WakeAt or eaten then return end
-		rag.Awake = true
-		rag.NextCry = now + math.Rand(1, 1.8)
-		Say(rag, "wake")
-		Thrash(rag, 1.6, 6)
+	-- held, the teeth keep it going under; let go, it wears off
+	local dt = FrameTime()
+	if held then
+		rag.Sedation = math.min(1, rag.Sedation + dt / math.max(0.1, cv_sedate:GetFloat()))
+	else
+		rag.Sedation = math.max(0, rag.Sedation - dt / WEAR_OFF)
 	end
+	local lucid = Lucid(rag)
 
 	if rag.Maimed then
 		rag.Bled = (rag.Bled or 0) + FrameTime()
@@ -362,10 +387,11 @@ local function Update(rag, now)
 	if not held then
 		if rag.Maimed then
 			-- can't get up like this: writhes where it lies, fainter and fainter
+			if lucid < 0.15 then return end
 			if now >= (rag.NextThrash or 0) then
 				local life = math.Clamp(npc:Health() / math.max(1, npc:GetMaxHealth()), 0.1, 1)
-				rag.NextThrash = now + math.Rand(0.5, 1.5) / life
-				Thrash(rag, life * 0.6, 1)
+				rag.NextThrash = now + math.Rand(0.5, 1.5) / (life * lucid)
+				Thrash(rag, life * lucid * 0.6, 1)
 			end
 			if now >= rag.NextCry then
 				rag.NextCry = now + math.Rand(2.5, 5)
@@ -375,20 +401,33 @@ local function Update(rag, now)
 		end
 		local root = rag:GetPhysicsObject()
 		local still = not IsValid(root) or root:GetVelocity():Length() < SETTLED
-		if still and now - rag.LetGoAt > GETUP_TIME then GetUp(rag, npc) end
+		if still and rag.Sedation < GETUP_SEDATION and now - rag.LetGoAt > GETUP_TIME then GetUp(rag, npc) end
 		return
 	end
 
-	-- fights it, less and less as there's less of them
+	-- the teeth: small bites wherever they can get through
+	if lucid > 0 and now >= (rag.NextNip or 0) then
+		rag.NextNip = now + math.Rand(0.5, 1.1)
+		Nip(rag)
+	end
+
+	-- fights it, less and less as it goes under and as there's less of them
+	if lucid < 0.15 then return end
 	local life = math.Clamp(npc:Health() / math.max(1, npc:GetMaxHealth()), 0.2, 1)
 	if now >= (rag.NextThrash or 0) then
-		rag.NextThrash = now + math.Rand(0.12, 0.4) / life
-		Thrash(rag, life, math.random(1, 2))
+		rag.NextThrash = now + math.Rand(0.12, 0.4) / (life * lucid)
+		Thrash(rag, life * lucid, math.random(1, 2))
 	end
 	-- while it's eating, the stabs do the screaming (Victim.Pierced)
 	if not eaten and now >= rag.NextCry then
-		rag.NextCry = now + math.Rand(1.8, 3.4)
-		Say(rag, "help")
+		rag.NextCry = now + math.Rand(1.8, 3.4) * (1 + 1.5 * rag.Sedation)
+		if lucid > 0.6 then
+			Say(rag, "help")
+		elseif lucid > 0.3 then
+			Say(rag, "pain", 78)
+		else
+			Say(rag, "die", 62)
+		end
 	end
 end
 

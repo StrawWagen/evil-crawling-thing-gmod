@@ -1,11 +1,11 @@
--- How it feeds: one leg rears back and whips into an NPC hard enough to
--- knock it senseless, and coils round the body as it falls. It eats them
--- alive (sv_victim.lua keeps them that way). That leg is done walking until it
--- lets go: it drags the body somewhere out of sight, hauls it up into the
--- tangle the legs grow from, and holds it there, turning it over, while other
--- legs stab into it and tear pieces away for the small mouths along them to
--- swallow, a limb at a time, until there's nothing left but the torso. Too
--- long finding somewhere quiet and they come to on the way.
+-- How it feeds: one leg rears back, whips out and coils round an NPC, and
+-- holds on while they fight it and the teeth along it put them under
+-- (sv_victim.lua). That leg is done walking until it lets go: it carries them
+-- somewhere out of sight, waits there until they've stopped struggling, hauls
+-- them up into the tangle the legs grow from, and holds them there, asleep,
+-- turning them over, while other legs stab in and tear pieces away for the
+-- small mouths along them to swallow, a limb at a time, until there's nothing
+-- left but the torso. It never eats anything still fighting: not worth it.
 -- Players are never attacked.
 
 local Victim = EvilCrawler.Victim
@@ -15,8 +15,6 @@ local IMPACT_TIME = EvilCrawler.STRIKE_WINDUP + EvilCrawler.STRIKE_LUNGE
 
 local ATTACK_REACH = 140
 local MISS_REACH = ATTACK_REACH * 1.5 -- got this far away during the windup: the strike misses
-local KNOCK = 350 -- how hard the strike throws the body
-local YANK_TIME = 0.5 -- the body flies loose this long before the leg reels it in
 local PULL_TIME = EvilCrawler.PULL_TIME
 local TRAIL_RATE = 1.5 -- how fast a carried body swings round behind it
 local FEEDERS = EvilCrawler.FEEDERS
@@ -30,17 +28,18 @@ local STAB_FORCE = 120
 local RIP_FORCE = 350
 local DRAINED = 40 -- rips until the body is as dark as it gets
 local TURN_SPEED = 35 -- degrees a second it turns the body over while eating
-local DRAG_TIME = 15 -- gives up looking for somewhere private after this long and eats where it is
+local DRAG_TIME = 15 -- gives up looking for somewhere private after this long and stops where it is
 local SATED_TIME = 90
+local ANGER_HUNGER = 0.5 -- each step of anger shortens how long a meal lasts it by this share
 local LAIR_TRIES = 12
 local DISTURB_RANGE = 330
 
 local WINDUP_SOUNDS = { "npc/barnacle/barnacle_tongue_pull1.wav", "npc/barnacle/barnacle_tongue_pull2.wav" }
 local LUNGE_SOUND = "npc/zombie/claw_miss1.wav"
-local HIT_SOUNDS = {
-	"physics/body/body_medium_impact_hard1.wav",
-	"physics/body/body_medium_impact_hard4.wav",
-	"physics/body/body_medium_impact_hard6.wav",
+local GRAB_SOUNDS = {
+	"physics/body/body_medium_impact_soft1.wav",
+	"physics/body/body_medium_impact_soft3.wav",
+	"physics/body/body_medium_impact_soft5.wav",
 }
 local STAB_SOUNDS = {
 	"physics/flesh/flesh_impact_bullet1.wav",
@@ -116,44 +115,26 @@ local function Chest(corpse)
 	return corpse:GetPhysicsObjectNum(index >= 0 and index or 0)
 end
 
--- The leg lands: the NPC drops senseless, thrown along the blow, already
--- caught in the leg's coil.
+function ENT:Sate(now)
+	self.SatedUntil = now + SATED_TIME / (1 + ANGER_HUNGER * (self.Anger or 0))
+end
+
+-- The leg lands and coils round them, and they're off their feet.
 function ENT:Strike(npc)
 	local now = CurTime()
 	local center = npc:WorldSpaceCenter()
 	local dir = (center - self:GetPos()):GetNormalized()
 
-	sound.Play(HIT_SOUNDS[math.random(#HIT_SOUNDS)], center, 85, math.random(80, 95))
-	local fx = EffectData()
-	fx:SetOrigin(center)
-	fx:SetNormal(-dir)
-	util.Effect("BloodImpact", fx)
-	util.Decal("Blood", center, center + dir * 160, npc)
-
 	if npc.DropWeapon and IsValid(npc:GetActiveWeapon()) then npc:DropWeapon() end
 
-	local corpse = Victim.KnockOut(npc, self)
+	local corpse = Victim.Grab(npc, self)
 	if not IsValid(corpse) then
-		-- no ragdoll to be had: kill it outright and leave it
-		local dmg = DamageInfo()
-		dmg:SetDamage(npc:Health() + 1000)
-		dmg:SetDamageType(DMG_CRUSH)
-		dmg:SetAttacker(self)
-		dmg:SetInflictor(self)
-		npc:TakeDamageInfo(dmg)
-		self:Release()
-		self.SatedUntil = now + SATED_TIME
+		self:Release() -- nothing it can get a grip on
 		return
 	end
-
-	local knock = dir * KNOCK + vector_up * 120
-	for i = 0, corpse:GetPhysicsObjectCount() - 1 do
-		local phys = corpse:GetPhysicsObjectNum(i)
-		if IsValid(phys) then phys:SetVelocity(knock) end
-	end
+	sound.Play(GRAB_SOUNDS[math.random(#GRAB_SOUNDS)], center, 75, math.random(80, 95))
 
 	self:SetVictim(corpse)
-	self.StruckAt = now
 	self.CarryDir = dir
 	self.Eaten = 0
 	self:StartDrag(now)
@@ -177,9 +158,9 @@ local function NearestPlayer(spot)
 	return nearest
 end
 
--- Somewhere private to eat: far from every player, ideally with a roof
--- overhead and walls close around.
-function ENT:FindLair()
+-- Somewhere private to eat or hide: far from every player (and from
+-- `threat`, if given), ideally with a roof overhead and walls close around.
+function ENT:FindLair(threat)
 	local pos = self:GetPos()
 	local best, bestScore = pos, -math.huge
 	for _ = 1, LAIR_TRIES do
@@ -190,6 +171,7 @@ function ENT:FindLair()
 		local spot = tr.HitPos - dir * 32
 
 		local score = math.min(NearestPlayer(spot), 3000)
+		if threat then score = score + math.min(threat:Distance(spot), 3000) end
 		if self:Trace(spot, spot + Vector(0, 0, 400)).Hit then score = score + 600 end
 		for _, side in ipairs(SIDES) do
 			if self:Trace(spot, spot + side * 200).Hit then score = score + 150 end
@@ -390,8 +372,12 @@ function ENT:PonderAct(now)
 		self.Goal = nil
 	elseif act == ACT_DRAG then
 		self.Goal = self.Lair
-		if Victim.Awake(self:GetVictim()) then self.Pace = 1 end -- they're making a racket
-		if self:Reached(self.Lair) or now > self.ActDeadline then
+		local there = self:Reached(self.Lair) or now > self.ActDeadline
+		if there and not Victim.Asleep(self:GetVictim()) then
+			-- holds them there until they stop fighting, unless someone comes
+			self.Goal = nil
+			if self:Disturbed() then self:StartDrag(now) end
+		elseif there then
 			self:SetAct(ACT_FEED)
 			self:SetActStart(now)
 			self:SetState("feed")
@@ -406,7 +392,7 @@ function ENT:PonderAct(now)
 			self:StartDrag(now) -- someone came close: take it somewhere else
 		elseif now > self.FeedUntil then
 			if Victim.Alive(self:GetVictim()) then Victim.Kill(self:GetVictim(), self) end
-			self.SatedUntil = now + SATED_TIME
+			self:Sate(now)
 			self:Release()
 		end
 	end
@@ -441,8 +427,7 @@ function ENT:UpdateAct(now)
 			end
 		end
 	else
-		local grip = math.Clamp((now - (self.StruckAt or 0)) / YANK_TIME, 0.05, 1)
-		self:HoldCorpse(victim, self:HoldPoint(now, FrameTime()), 8, grip * grip)
+		self:HoldCorpse(victim, self:HoldPoint(now, FrameTime()), 8, 1)
 		if self:GetAct() == ACT_FEED then self:Feed(victim, now) end
 	end
 end

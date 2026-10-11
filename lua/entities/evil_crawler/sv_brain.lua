@@ -6,6 +6,9 @@
 -- Hungry, it goes for NPCs it can eat (sv_attack.lua) over players, which it
 -- only stalks, and follows NPC trails over theirs. Fed, it loses interest in
 -- NPC trails. Fear draws it either way.
+-- Hurt, it drops whatever it's holding and runs for somewhere out of the way
+-- to lie low. It comes back out angrier: quicker, hungrier sooner, and
+-- following whoever hurt it.
 -- Each thought sets self.Goal (a point to crawl toward) and self.Pace (a
 -- share of top speed); Crawl does the moving.
 
@@ -29,10 +32,21 @@ local STUCK_TIME = 2.5
 local HUNGRY_PULL = 2 -- how much more an NPC's trail draws it when it's hungry
 local FED_PULL = 0.3 -- and when it isn't
 local FEAR_PULL = 1.5
+local GRUDGE_PULL = 2.5 -- how much more the trail of whoever hurt it draws it
+local FLEE_TIME = 8 -- runs this long at most before hiding wherever it's got to
+local HIDE_TIME = { 20, 40 }
+local ANGER_MAX = 3
+local ANGER_FADE = 180 -- seconds for each step of anger to wear off
+local ANGER_PACE = 0.15 -- each step of anger makes it this much quicker on someone's trail
+local PAIN_SOUNDS = { "npc/barnacle/barnacle_die1.wav", "npc/barnacle/barnacle_die2.wav" }
 
-local PACE = { roam = 0.45, search = 0.6, track = 0.85, hunt = 1.25, strike = 0, drag = 0.7, feed = 0 }
-local MOOD = { roam = 0, search = 1, track = 1, hunt = 2, strike = 2, drag = 1, feed = 1 }
-local STATE_COLOR = { roam = Color(120, 120, 120), search = Color(255, 200, 0), track = Color(255, 120, 0), hunt = Color(255, 0, 0) }
+local PACE = { roam = 0.45, search = 0.6, track = 0.85, hunt = 1.25, strike = 0, drag = 0.7, feed = 0, flee = 1.5, hide = 0 }
+local MOOD = { roam = 0, search = 1, track = 1, hunt = 2, strike = 2, drag = 1, feed = 1, flee = 2, hide = 0 }
+local CHASING = { search = true, track = true, hunt = true }
+local STATE_COLOR = {
+	roam = Color(120, 120, 120), search = Color(255, 200, 0), track = Color(255, 120, 0), hunt = Color(255, 0, 0),
+	flee = Color(0, 200, 255), hide = Color(0, 80, 160),
+}
 
 local function Perceivable(ent)
 	if ent:IsFlagSet(FL_NOTARGET) then return false end
@@ -92,6 +106,7 @@ function ENT:Appeal(node, now)
 	local w = 1
 	if node.npc then w = self:IsHungry() and HUNGRY_PULL or FED_PULL end
 	if node.fear then w = math.max(w, 1) * FEAR_PULL end
+	if self.Grudge and node.trail.owner == self.Grudge then w = math.max(w, 1) * GRUDGE_PULL end
 	return Scent.Intensity(node, now) * w
 end
 
@@ -129,6 +144,8 @@ function ENT:Ponder()
 		self:PonderAct(now)
 		return
 	end
+	self:Cool(now)
+	if self:LyingLow(now) then return end
 
 	self.Puppeting = cv_puppet:GetBool()
 	if self.Puppeting then
@@ -247,7 +264,57 @@ function ENT:Steer()
 	if self.DetourUntil and now < self.DetourUntil then
 		return self:GetPos() + self.Detour, self.Pace
 	end
-	return self.Goal, self.Pace or 0
+	local pace = self.Pace or 0
+	if CHASING[self.State] then pace = pace * (1 + ANGER_PACE * (self.Anger or 0)) end
+	return self.Goal, pace
+end
+
+-- Shot, stabbed, blown up: it lets go of whatever it has and runs.
+function ENT:OnTakeDamage(dmg)
+	if dmg:GetDamage() <= 0 then return end
+	local now = CurTime()
+	local attacker = dmg:GetAttacker()
+
+	if now >= (self.NextPain or 0) then
+		self.NextPain = now + 1.5
+		self:EmitSound(PAIN_SOUNDS[math.random(#PAIN_SOUNDS)], 85, math.random(135, 155))
+	end
+	if self:GetAct() ~= EvilCrawler.ACT_NONE then self:Release() end
+	if IsValid(attacker) and attacker ~= self and not attacker:IsWorld() then self.Grudge = attacker end
+	if self.State == "flee" then return end
+
+	self.Anger = math.min(ANGER_MAX, (self.Anger or 0) + 1)
+	self.CalmAt = now + ANGER_FADE
+	self:SetPrey(NULL)
+	self:SetState("flee")
+	self.Goal = self:FindLair(IsValid(attacker) and attacker:GetPos() or dmg:GetDamagePosition())
+	self.FleeUntil = now + FLEE_TIME
+	self.Trail = nil
+	self.DetourUntil = nil
+end
+
+-- Running, then hiding until it's sure. True while it wants nothing else.
+function ENT:LyingLow(now)
+	if self.State == "flee" then
+		if self.Goal and not self:Reached(self.Goal) and now < self.FleeUntil then return true end
+		self:SetState("hide")
+		self.HideUntil = now + math.Rand(HIDE_TIME[1], HIDE_TIME[2])
+	end
+	if self.State ~= "hide" then return false end
+	if now < self.HideUntil then
+		self.Goal = nil
+		return true
+	end
+	self:SetState("roam")
+	return false
+end
+
+function ENT:Cool(now)
+	if (self.Anger or 0) > 0 and now > self.CalmAt then
+		self.Anger = self.Anger - 1
+		self.CalmAt = now + ANGER_FADE
+		if self.Anger == 0 then self.Grudge = nil end
+	end
 end
 
 -- Debug: crawl to wherever the spawner is looking.

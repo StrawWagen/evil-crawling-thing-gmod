@@ -73,7 +73,11 @@ function ENT:Initialize()
 	if self:GetSeed() == 0 then self:SetSeed(math.random(1, 2 ^ 30)) end
 	local morph = EvilCrawler.Grow(self:GetSeed())
 	self.BodyHeight = morph.height
-	self:SetCollisionBounds(Vector(-12, -12, -12), Vector(12, 12, 12))
+	-- roughly where the tangle and the tops of the legs are, so it can be
+	-- shot; nothing walks into it
+	local r = self.BodyHeight * 0.6
+	self:SetCollisionBounds(Vector(-r, -r, -r), Vector(r, r, r))
+	self:SetCollisionGroup(COLLISION_GROUP_WEAPON)
 
 	local up = self.SpawnUp or Vector(0, 0, 1)
 	local facing = self:GetForward()
