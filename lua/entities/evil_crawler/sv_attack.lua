@@ -1,12 +1,13 @@
 -- How it feeds: one leg rears back, whips out and coils round an NPC, and
 -- holds on while they fight it and the teeth along it put them under
 -- (sv_victim.lua). That leg is done walking until it lets go: it carries them
--- somewhere out of sight, waits there until they've stopped struggling, hauls
--- them up into the tangle the legs grow from, and holds them there, asleep,
--- turning them over, while other legs stab in and tear pieces away for the
--- small mouths along them to swallow, a limb at a time, until there's nothing
--- left but the torso. It never eats anything still fighting: not worth it.
--- Players are never attacked.
+-- somewhere out of sight, waits there until they've stopped struggling, then
+-- shifts its grip to the head and hauls them up into its mouth, where the
+-- legs meet. It holds them there, asleep, slowly turning, while the other
+-- legs stab into the mouthful going in and tear it apart, until it's
+-- swallowed and the next is drawn in: head, shoulders, chest, hips, legs,
+-- until there's nothing left. It never eats anything still fighting: not
+-- worth it. Players are never attacked.
 
 local Victim = EvilCrawler.Victim
 local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
@@ -21,8 +22,10 @@ local FEEDERS = EvilCrawler.FEEDERS
 local BITE_IN, BITE_RIP = EvilCrawler.BITE_IN, EvilCrawler.BITE_RIP
 local BiteCycle, BiteBone = EvilCrawler.BiteCycle, EvilCrawler.BiteBone
 local PARTS, CurrentPart = EvilCrawler.PARTS, EvilCrawler.CurrentPart
-local RIPS_PER_PART = 4 -- tears it takes to strip a part away
-local TORSO_TIME = 6 -- picks at what's left this long before it's done
+local TORSO_TIME = 6 -- picks at a body it can't swallow this long before it's done
+local FINISH_TIME = 2 -- the last mouthful goes down this long after it's torn loose
+local GULP_DEPTH = 5 -- how far each swallow draws the mouthful in
+local GULP_RATE = 1.7 -- swallows a second, roughly
 local FEED_CAP = 60 -- gives up eating after this long, whatever's left
 local STAB_FORCE = 120
 local RIP_FORCE = 350
@@ -103,6 +106,7 @@ function ENT:Release()
 	self.CarryDir = nil
 	self.BiteStage = nil
 	self.BitePart = nil
+	self.Devoured = nil
 end
 
 local function Smooth(t)
@@ -192,7 +196,7 @@ function ENT:Disturbed()
 	return false
 end
 
--- How far into the haul up into the tangle, 0..1. Reeled in by jerks.
+-- How far into the haul up into the mouth, 0..1. Reeled in by jerks.
 function ENT:Pull(now)
 	if self:GetAct() ~= ACT_FEED then return 0 end
 	local t = now - self:GetActStart()
@@ -200,8 +204,8 @@ function ENT:Pull(now)
 end
 
 -- Where the holding leg keeps the body: carried low at the leg's length,
--- swinging round to trail behind as it crawls, and hauled up into the tangle
--- once it's somewhere quiet.
+-- swinging round to trail behind as it crawls, and hauled up into the mouth
+-- once it's somewhere quiet, where every swallow draws it a little further in.
 function ENT:HoldPoint(now, dt)
 	local pos, up, h = self:GetPos(), self.BodyUp, self.BodyHeight
 	local dir = self.CarryDir or -self.Facing
@@ -214,20 +218,12 @@ function ENT:HoldPoint(now, dt)
 	self.CarryDir = dir
 
 	local carry = pos - up * (h * 0.6) + dir * (h * 1.1)
-	return LerpVector(Smooth(self:Pull(now)), carry, pos)
-end
-
--- The body hangs from the holding leg by its chest. With a loose grip it
--- keeps more of its own momentum.
-function ENT:HoldCorpse(corpse, hold, stiffness, grip)
-	local phys = Chest(corpse)
-	if not IsValid(phys) then return end
-	local p = phys:GetPos()
-	if p:Distance(hold) > 600 then
-		self:Release() -- snagged on something; leave it
-		return
+	local t = now - self:GetActStart() - PULL_TIME
+	local mouth = pos
+	if self:GetAct() == ACT_FEED and t > 0 then
+		mouth = pos + up * (GULP_DEPTH * math.max(0, math.sin(t * GULP_RATE * math.pi * 2)) ^ 2)
 	end
-	phys:SetVelocity(LerpVector(0.5 * grip, phys:GetVelocity(), (hold - p) * stiffness + self.Vel))
+	return LerpVector(Smooth(self:Pull(now)), carry, mouth)
 end
 
 local function BitePhys(corpse, name)
@@ -236,6 +232,38 @@ local function BitePhys(corpse, name)
 	if index < 0 then index = math.random(0, corpse:GetPhysicsObjectCount() - 1) end
 	local phys = corpse:GetPhysicsObjectNum(index)
 	return IsValid(phys) and phys
+end
+
+-- What the holding leg has hold of: whatever mouthful is going in once it's
+-- started eating, or once anything's gone; the chest before that.
+function ENT:Held(corpse)
+	local part = CurrentPart(corpse)
+	if not part or (part == 1 and self:GetAct() ~= ACT_FEED) then return { Chest(corpse) } end
+	local held = {}
+	for _, name in ipairs(PARTS[part].grip) do
+		local phys = BitePhys(corpse, name)
+		if phys then held[#held + 1] = phys end
+	end
+	return held
+end
+
+-- The body hangs from the holding leg by what it's holding. Two bones (a pair
+-- of legs) go in side by side. With a loose grip the body keeps more of its
+-- own momentum.
+function ENT:HoldCorpse(corpse, hold, stiffness, grip)
+	local held = self:Held(corpse)
+	local side = self.BodyUp:Cross(self.Facing)
+	for i, phys in ipairs(held) do
+		if IsValid(phys) then
+			local at = hold + side * ((i - (#held + 1) / 2) * 7)
+			local p = phys:GetPos()
+			if p:Distance(at) > 600 then
+				self:Release() -- snagged on something; leave it
+				return
+			end
+			phys:SetVelocity(LerpVector(0.5 * grip, phys:GetVelocity(), (at - p) * stiffness + self.Vel))
+		end
+	end
 end
 
 -- A leg drives into the body from above.
@@ -284,24 +312,23 @@ function ENT:Rip(phys, corpse)
 	end)
 end
 
--- A part and everything below it, stripped down to nothing. Its physics
--- stays on to hold the ragdoll together, but nothing can touch it.
-local function Strip(corpse, bone)
-	corpse:ManipulateBoneScale(bone, Vector(0, 0, 0))
-	local index = corpse:TranslateBoneToPhysBone(bone)
-	if index >= 0 and corpse:TranslatePhysBoneToBone(index) == bone then
-		local phys = corpse:GetPhysicsObjectNum(index)
-		if IsValid(phys) then phys:EnableCollisions(false) end
+-- A mouthful, stripped down to nothing. Its physics stays on to hold the
+-- ragdoll together, but nothing can touch it.
+local function Strip(corpse, part)
+	for _, bone in ipairs(EvilCrawler.PartBones(corpse, part)) do
+		corpse:ManipulateBoneScale(bone, Vector(0, 0, 0))
+		local index = corpse:TranslateBoneToPhysBone(bone)
+		if index >= 0 and corpse:TranslatePhysBoneToBone(index) == bone then
+			local phys = corpse:GetPhysicsObjectNum(index)
+			if IsValid(phys) then phys:EnableCollisions(false) end
+		end
 	end
-	for _, child in ipairs(corpse:GetChildBones(bone)) do Strip(corpse, child) end
 end
 
--- The last of a part goes: a burst of blood from the stump it leaves.
+-- The last of a mouthful goes down: a burst of blood out of the mouth.
 function ENT:Consume(corpse, part, now)
-	local bone = corpse:LookupBone(PARTS[part].root)
-	if not bone then return end
-	local p = corpse:GetBonePosition(bone) or corpse:WorldSpaceCenter()
-	Strip(corpse, bone)
+	local p = self:GetPos()
+	Strip(corpse, part)
 	corpse:SetNW2Int(EvilCrawler.EATEN_VAR, bit.bor(corpse:GetNW2Int(EvilCrawler.EATEN_VAR, 0), bit.lshift(1, part - 1)))
 
 	local fx = EffectData()
@@ -313,16 +340,22 @@ function ENT:Consume(corpse, part, now)
 	util.Effect("bloodspray", fx)
 	for _ = 1, 3 do util.Decal("Blood", p, p - self.BodyUp * 200 + VectorRand() * 80, corpse) end
 	sound.Play(CONSUME_SOUNDS[math.random(#CONSUME_SOUNDS)], p, 80, math.random(85, 100))
+	timer.Simple(0.6, function()
+		if IsValid(self) then
+			sound.Play(GULP_SOUNDS[math.random(#GULP_SOUNDS)], self:GetPos(), 70, math.random(55, 70))
+		end
+	end)
 
-	if not CurrentPart(corpse, self:GetSeed()) then
-		self.FeedUntil = math.min(self.FeedUntil, now + TORSO_TIME)
+	if not CurrentPart(corpse) then
+		self.Devoured = true
+		self.FeedUntil = math.min(self.FeedUntil, now + FINISH_TIME)
 	end
-	Victim.Maimed(corpse, PARTS[part].root, self)
+	Victim.Maimed(corpse, PARTS[part].grip[1], self)
 end
 
 -- Once the body is hauled in: runs the bite schedule each feeding leg is
--- drawn following, and slowly turns the body over to get at all of it.
--- Every leg works the same part until it's gone.
+-- drawn following, and slowly turns the body as it goes in. Every leg works
+-- the mouthful going in until it's gone.
 function ENT:Feed(corpse, now)
 	local t = now - self:GetActStart() - PULL_TIME
 	if t < 0 then return end
@@ -337,7 +370,7 @@ function ENT:Feed(corpse, now)
 		self.BiteStage[k] = stage
 		if last and stage ~= last and stage % 3 ~= 0 then
 			-- which part this bite is on is settled when the leg goes in
-			if stage % 3 == 1 then self.BitePart[k] = CurrentPart(corpse, seed) or false end
+			if stage % 3 == 1 then self.BitePart[k] = CurrentPart(corpse) or false end
 			local part = self.BitePart[k] or nil
 			local phys = BitePhys(corpse, BiteBone(seed, k, n, part))
 			if phys then
@@ -346,9 +379,9 @@ function ENT:Feed(corpse, now)
 					Victim.Pierced(corpse)
 				else
 					self:Rip(phys, corpse)
-					if part and part == CurrentPart(corpse, seed) then
+					if part and part == CurrentPart(corpse) then
 						corpse.EvilCrawlerRips = (corpse.EvilCrawlerRips or 0) + 1
-						if corpse.EvilCrawlerRips >= RIPS_PER_PART then
+						if corpse.EvilCrawlerRips >= PARTS[part].rips then
 							corpse.EvilCrawlerRips = 0
 							self:Consume(corpse, part, now)
 						end
@@ -382,16 +415,18 @@ function ENT:PonderAct(now)
 			self:SetActStart(now)
 			self:SetState("feed")
 			self.FeedUntil = now + PULL_TIME + FEED_CAP
-			if not CurrentPart(self:GetVictim(), self:GetSeed()) then
+			if not CurrentPart(self:GetVictim()) then
 				self.FeedUntil = now + PULL_TIME + TORSO_TIME -- nothing left worth the trouble
 			end
 		end
 	elseif act == ACT_FEED then
 		self.Goal = nil
-		if self:Disturbed() then
+		local victim = self:GetVictim()
+		if not self.Devoured and self:Disturbed() then
 			self:StartDrag(now) -- someone came close: take it somewhere else
 		elseif now > self.FeedUntil then
-			if Victim.Alive(self:GetVictim()) then Victim.Kill(self:GetVictim(), self) end
+			if Victim.Alive(victim) then Victim.Kill(victim, self) end
+			if self.Devoured then victim:Remove() end -- all gone
 			self:Sate(now)
 			self:Release()
 		end

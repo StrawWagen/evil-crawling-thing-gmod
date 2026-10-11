@@ -143,7 +143,7 @@ end
 local function BitePose(victim, seed, k, t, up, now, limb, bites)
 	local n, u = BiteCycle(k, t)
 	local center = victim:WorldSpaceCenter()
-	local part = CurrentPart(victim, seed)
+	local part = CurrentPart(victim)
 
 	-- the legs come at the same part from all round it
 	local function spot(m)
@@ -180,9 +180,16 @@ local function BitePose(victim, seed, k, t, up, now, limb, bites)
 	return LerpVector(1 - (1 - f) ^ 3, deep, out), n, u
 end
 
--- Where the holding leg coils on the body: round the torso, as an axis to
+-- Where the holding leg coils on the body: round the torso, or once it's
+-- being eaten, round what's left of it from the mouth down, as an axis to
 -- wrap round and a radius.
 local function GripAxis(body)
+	local part = CurrentPart(body)
+	if part and part > 1 then
+		local top = Bone(body, EvilCrawler.PARTS[part].grip[1])
+		local lf, rf = Bone(body, "ValveBiped.Bip01_L_Foot"), Bone(body, "ValveBiped.Bip01_R_Foot")
+		if top and lf and rf then return top, (lf + rf) * 0.5, 7 end
+	end
 	local pelvis = Bone(body, "ValveBiped.Bip01_Pelvis")
 	local neck = Bone(body, "ValveBiped.Bip01_Neck1")
 	if pelvis and neck then return pelvis, neck, 9 end

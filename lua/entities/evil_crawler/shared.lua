@@ -8,64 +8,94 @@ EvilCrawler.ACT_FEED = 3
 EvilCrawler.STRIKE_WINDUP = 0.4 -- one leg rears back, trembling
 EvilCrawler.STRIKE_LUNGE = 0.08 -- then whips into the victim
 EvilCrawler.WRAP_TIME = 0.15 -- and coils round the body as it drops
-EvilCrawler.PULL_TIME = 2 -- somewhere quiet, it hauls the body up into the tangle before eating
+EvilCrawler.PULL_TIME = 2 -- somewhere quiet, it hauls the body up into its mouth head first
 
--- Feeding: each feeding leg rears over a part of the body, stabs into it,
--- worries at it, then rips out. The timing is fixed by the creature's seed,
--- so the server's gore and every client's legs land together.
+-- Feeding: the mouth is where the legs meet. Each feeding leg rears over the
+-- mouthful going in, stabs into it, worries at it, then rips out. The timing
+-- is fixed by the creature's seed, so the server's gore and every client's
+-- legs land together.
 EvilCrawler.FEEDERS = 4
 EvilCrawler.BITE_JAB = 0.5 -- share of a cycle spent rearing over the next bite
 EvilCrawler.BITE_IN = 0.56 -- the stab lands
 EvilCrawler.BITE_RIP = 0.82 -- and tears back out
 EvilCrawler.LUMP_TIME = 1.2 -- what it tore off takes this long to travel up the leg
 
--- What it eats, a limb at a time from the hand or foot inward, head last,
--- until only the torso is left. Each part goes with everything below it.
--- `size` scales the stump left behind.
+-- What it eats, in order, head first, a mouthful at a time. While a mouthful
+-- goes it's held in the mouth by its `grip` bones. Eating it takes `bones`
+-- and everything below `roots`, and `rips` tears. It leaves `stumps`, the
+-- open end of what's left, each a bone and the bone below it that the stump
+-- points away from; `size` scales them.
 local B = "ValveBiped.Bip01_"
 EvilCrawler.PARTS = {
-	{ root = B .. "L_Forearm", bites = { B .. "L_Hand", B .. "L_Forearm" }, size = 2.2 },
-	{ root = B .. "L_UpperArm", bites = { B .. "L_UpperArm" }, size = 2.8 },
-	{ root = B .. "R_Forearm", bites = { B .. "R_Hand", B .. "R_Forearm" }, size = 2.2 },
-	{ root = B .. "R_UpperArm", bites = { B .. "R_UpperArm" }, size = 2.8 },
-	{ root = B .. "L_Calf", bites = { B .. "L_Foot", B .. "L_Calf" }, size = 3 },
-	{ root = B .. "L_Thigh", bites = { B .. "L_Thigh" }, size = 3.8 },
-	{ root = B .. "R_Calf", bites = { B .. "R_Foot", B .. "R_Calf" }, size = 3 },
-	{ root = B .. "R_Thigh", bites = { B .. "R_Thigh" }, size = 3.8 },
-	{ root = B .. "Head1", bites = { B .. "Head1", B .. "Neck1" }, size = 3.2 },
+	{ -- head
+		grip = { B .. "Head1" }, roots = { B .. "Head1" }, bones = { B .. "Neck1" }, rips = 6,
+		stumps = { { B .. "Spine4", B .. "Spine2" } }, size = 3.4,
+	},
+	{ -- shoulders and arms
+		grip = { B .. "Spine2" }, roots = { B .. "L_Clavicle", B .. "R_Clavicle" }, bones = { B .. "Spine4" }, rips = 8,
+		stumps = { { B .. "Spine2", B .. "Spine1" } }, size = 4.6,
+	},
+	{ -- chest
+		grip = { B .. "Spine2" }, bones = { B .. "Spine2", B .. "Spine1" }, rips = 8,
+		stumps = { { B .. "Spine", B .. "Pelvis" } }, size = 4.6,
+	},
+	{ -- belly and hips
+		grip = { B .. "Pelvis" }, bones = { B .. "Spine", B .. "Pelvis" }, rips = 8,
+		stumps = { { B .. "L_Thigh", B .. "L_Calf" }, { B .. "R_Thigh", B .. "R_Calf" } }, size = 3.8,
+	},
+	{ -- thighs
+		grip = { B .. "L_Thigh", B .. "R_Thigh" }, bones = { B .. "L_Thigh", B .. "R_Thigh" }, rips = 6,
+		stumps = { { B .. "L_Calf", B .. "L_Foot" }, { B .. "R_Calf", B .. "R_Foot" } }, size = 3,
+	},
+	{ -- shins and feet
+		grip = { B .. "L_Calf", B .. "R_Calf" }, roots = { B .. "L_Calf", B .. "R_Calf" }, rips = 5,
+		stumps = {}, size = 2.5,
+	},
 }
+for _, part in ipairs(EvilCrawler.PARTS) do
+	part.bites = {}
+	for _, b in ipairs(part.grip) do part.bites[#part.bites + 1] = b end
+	for _, b in ipairs(part.bones or {}) do
+		if not table.HasValue(part.bites, b) then part.bites[#part.bites + 1] = b end
+	end
+end
 EvilCrawler.TORSO_BITES = { B .. "Spine2", B .. "Spine1", B .. "Spine", B .. "Pelvis" }
 EvilCrawler.EATEN_VAR = "EvilCrawlerEaten" -- networked on the corpse: bit i set once part i is gone
-
-local LIMBS = { { 1, 2 }, { 3, 4 }, { 5, 6 }, { 7, 8 } }
-local orders = {}
-
--- The order a creature eats in: its limbs in an order of its own, each from
--- the end inward, then the head.
-function EvilCrawler.EatOrder(seed)
-	local order = orders[seed]
-	if order then return order end
-	order = {}
-	local first, step = seed % 4, seed % 3 == 0 and 3 or 1
-	for i = 0, 3 do
-		for _, part in ipairs(LIMBS[(first + i * step) % 4 + 1]) do order[#order + 1] = part end
-	end
-	order[#order + 1] = 9
-	orders[seed] = order
-	return order
-end
 
 function EvilCrawler.Eaten(corpse, part)
 	return bit.band(corpse:GetNW2Int(EvilCrawler.EATEN_VAR, 0), bit.lshift(1, part - 1)) ~= 0
 end
 
--- The part it's eating now, or nil once nothing is left but the torso.
-function EvilCrawler.CurrentPart(corpse, seed)
-	for _, part in ipairs(EvilCrawler.EatOrder(seed)) do
-		if not EvilCrawler.Eaten(corpse, part) and corpse:LookupBone(EvilCrawler.PARTS[part].root) then
-			return part
+-- The mouthful it's on, or nil once there's nothing left it knows how to eat.
+function EvilCrawler.CurrentPart(corpse)
+	for part, p in ipairs(EvilCrawler.PARTS) do
+		if not EvilCrawler.Eaten(corpse, part) then
+			return corpse:LookupBone(p.grip[1]) and part or nil
 		end
 	end
+end
+
+-- Every bone a mouthful takes, looked up on `ent` and kept there.
+function EvilCrawler.PartBones(ent, part)
+	ent.EvilCrawlerPartBones = ent.EvilCrawlerPartBones or {}
+	local bones = ent.EvilCrawlerPartBones[part]
+	if bones then return bones end
+	bones = {}
+	local function subtree(b)
+		bones[#bones + 1] = b
+		for _, child in ipairs(ent:GetChildBones(b)) do subtree(child) end
+	end
+	local p = EvilCrawler.PARTS[part]
+	for _, name in ipairs(p.roots or {}) do
+		local b = ent:LookupBone(name)
+		if b then subtree(b) end
+	end
+	for _, name in ipairs(p.bones or {}) do
+		local b = ent:LookupBone(name)
+		if b and not table.HasValue(bones, b) then bones[#bones + 1] = b end
+	end
+	ent.EvilCrawlerPartBones[part] = bones
+	return bones
 end
 
 -- Feeding leg k's bite cycle, `t` seconds into feeding: which bite it's on

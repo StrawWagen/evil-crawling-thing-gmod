@@ -1,8 +1,9 @@
--- What's left where a part was eaten away. The server shrinks the limb to
--- nothing; here every bone of it is also folded into the joint it hung from,
--- or the mesh would stretch thin strips between wherever its invisible bones
--- dangle. Then this draws the stump left behind (a wet cap of meat, a
--- splintered end of bone, ragged strings of sinew) and lets it drip a while.
+-- What's left of a body it's been eating. The server shrinks each mouthful
+-- to nothing; here every bone of it is also folded into the mouth, wherever
+-- the next mouthful is being held, or the mesh would stretch thin strips
+-- between wherever its invisible bones dangle. Then this draws the open end
+-- of what's left (a wet cap of meat, a splintered end of bone, ragged strings
+-- of sinew) and lets it drip a while.
 EvilCrawler = EvilCrawler or {}
 local Flesh = EvilCrawler.Flesh
 local PARTS = EvilCrawler.PARTS
@@ -17,10 +18,10 @@ local MEAT = Color(70, 6, 9)
 local SINEW = Color(120, 22, 24)
 local MARROW = Color(205, 190, 170)
 
-local remains = {} -- ragdoll -> { [part] = { at = time eaten, shape = the stump's random look } }
+local remains = {} -- ragdoll -> { at = when the last mouthful went, part = which one, shapes = one per stump }
 
 -- A stump's look, made once and kept: which way the bone and each strand of
--- sinew stick out, as offsets from the line of the limb that was there.
+-- sinew stick out, as offsets from the line of the body it's the end of.
 local function Shape(size)
 	local strands = {}
 	for i = 1, STRANDS do
@@ -29,39 +30,38 @@ local function Shape(size)
 	return { bone = { x = math.Rand(-0.25, 0.25), y = math.Rand(-0.25, 0.25), len = size * math.Rand(1.2, 2) }, strands = strands }
 end
 
--- Where a part was attached, or nil once whatever it hung off has been eaten
--- too (a knee stump goes when the thigh does).
-local function StumpBone(rag, part)
-	local b = rag:LookupBone(part.root)
-	local parent = b and rag:GetBoneParent(b)
-	if not parent or parent < 0 or rag:GetManipulateBoneScale(parent).x == 0 then return end
-	return b, parent
+local function Has(mask, part)
+	return bit.band(mask, bit.lshift(1, part - 1)) ~= 0
 end
 
-local function Subtree(rag, bone, out)
-	out[#out + 1] = bone
-	for _, child in ipairs(rag:GetChildBones(bone)) do Subtree(rag, child, out) end
-	return out
+-- Where a stump is, and the point on the body it carries on from.
+local function StumpAt(rag, stump)
+	local b, below = rag:LookupBone(stump[1]), rag:LookupBone(stump[2])
+	return b and rag:GetBonePosition(b), below and rag:GetBonePosition(below)
 end
 
--- Folds each eaten part into a point at its joint. Parts run hand before arm,
--- so a whole eaten limb ends up folded into the shoulder or hip.
+-- Folds every eaten mouthful into the mouth: the bone it's holding the next
+-- one by, or, once it's let go, wherever the mouthful itself was joined on.
 local function Fold(rag)
 	local mask = rag.EvilCrawlerMask
 	if not mask or mask == 0 then return end
-	local strip = rag.EvilCrawlerStrip
-	for i, part in ipairs(PARTS) do
-		if bit.band(mask, bit.lshift(1, i - 1)) ~= 0 then
-			local bones = strip[i]
-			if bones == nil then
-				local b = rag:LookupBone(part.root)
-				bones = b and Subtree(rag, b, {}) or false
-				strip[i] = bones
+
+	local into
+	local current = EvilCrawler.CurrentPart(rag)
+	local grip = current and rag:LookupBone(PARTS[current].grip[1])
+	local m = grip and rag:GetBoneMatrix(grip)
+	if m then into = m:GetTranslation() end
+
+	for i in ipairs(PARTS) do
+		if Has(mask, i) then
+			local bones = EvilCrawler.PartBones(rag, i)
+			local p = into
+			if not p then
+				local own = bones[1] and rag:GetBoneMatrix(bones[1])
+				p = own and own:GetTranslation()
 			end
-			local m = bones and rag:GetBoneMatrix(bones[1])
-			if m then
-				local joint = m:GetTranslation()
-				local point = Matrix({ { 0, 0, 0, joint.x }, { 0, 0, 0, joint.y }, { 0, 0, 0, joint.z }, { 0, 0, 0, 1 } })
+			if p then
+				local point = Matrix({ { 0, 0, 0, p.x }, { 0, 0, 0, p.y }, { 0, 0, 0, p.z }, { 0, 0, 0, 1 } })
 				for _, b in ipairs(bones) do rag:SetBoneMatrix(b, point) end
 			end
 		end
@@ -70,21 +70,25 @@ end
 
 local function Track(rag, mask)
 	rag.EvilCrawlerMask = mask
-	if not rag.EvilCrawlerStrip then
-		rag.EvilCrawlerStrip = {}
+	if not rag.EvilCrawlerFolding then
+		rag.EvilCrawlerFolding = true
 		rag:AddCallback("BuildBonePositions", Fold)
 	end
 
-	local r = remains[rag] or {}
-	remains[rag] = r
-	for i, part in ipairs(PARTS) do
-		if not r[i] and bit.band(mask, bit.lshift(1, i - 1)) ~= 0 then
-			r[i] = { at = CurTime(), shape = Shape(part.size) }
-		end
+	-- only the newest open end shows; the ones before it went in after it
+	local last
+	for i in ipairs(PARTS) do
+		if Has(mask, i) then last = i end
+	end
+	local r = remains[rag]
+	if last and (not r or r.part ~= last) then
+		local shapes = {}
+		for i in ipairs(PARTS[last].stumps) do shapes[i] = Shape(PARTS[last].size) end
+		remains[rag] = { at = CurTime(), part = last, shapes = shapes }
 	end
 end
 
--- the moment a part goes, so it's never seen stretched
+-- the moment a mouthful goes, so it's never seen stretched
 hook.Add("EntityNetworkedVarChanged", "EvilCrawlerRemains", function(ent, name, _, mask)
 	if name == EATEN_VAR and mask and mask ~= 0 then Track(ent, mask) end
 end)
@@ -101,11 +105,10 @@ timer.Create("EvilCrawlerRemains", SCAN_INTERVAL, 0, function()
 		if not IsValid(rag) then
 			remains[rag] = nil
 		elseif not rag:IsDormant() then
-			for i, stump in pairs(r) do
-				local age = now - stump.at
+			local age = now - r.at
+			for _, stump in ipairs(PARTS[r.part].stumps) do
 				if age < DRIP_TIME and math.random() < 0.8 * (1 - age / DRIP_TIME) then
-					local b = StumpBone(rag, PARTS[i])
-					local p = b and rag:GetBonePosition(b)
+					local p = StumpAt(rag, stump)
 					if p then
 						local fx = EffectData()
 						fx:SetOrigin(p)
@@ -135,19 +138,16 @@ end
 
 local pts2, pts3 = {}, {}
 
-local function DrawStump(rag, part, shape)
-	local b, parent = StumpBone(rag, part)
-	if not b then return end
-	local p, pp = rag:GetBonePosition(b), rag:GetBonePosition(parent)
+local function DrawStump(rag, stump, size, shape)
+	local p, pp = StumpAt(rag, stump)
 	if not p or not pp then return end
 
-	-- the stump carries on the line of what it was cut from
+	-- the stump carries on the line of the body it's the end of
 	local d = p - pp
-	if d:LengthSqr() < 1e-4 then d = -vector_up end
+	if d:LengthSqr() < 1e-4 then d = vector_up end
 	d:Normalize()
 	local ang = d:Angle()
 	local u, v = ang:Right(), ang:Up()
-	local size = part.size
 
 	Flesh.SampleLight(p)
 
@@ -175,7 +175,8 @@ hook.Add("PostDrawOpaqueRenderables", "EvilCrawlerRemains", function(depth, sky)
 	render.SetMaterial(Flesh.Material)
 	for rag, r in pairs(remains) do
 		if IsValid(rag) and not rag:IsDormant() and rag:GetPos():DistToSqr(eye) < DRAW_DISTANCE * DRAW_DISTANCE then
-			for i, stump in pairs(r) do DrawStump(rag, PARTS[i], stump.shape) end
+			local part = PARTS[r.part]
+			for i, shape in ipairs(r.shapes) do DrawStump(rag, part.stumps[i], part.size, shape) end
 		end
 	end
 end)
