@@ -1,0 +1,43 @@
+-- Server settings: the convars every crawler goes by. Replicated, so the
+-- settings panel (cl_settings.lua) can show them; superadmins change them
+-- from there, or anyone from the server console.
+EvilCrawler = EvilCrawler or {}
+
+EvilCrawler.SETTINGS = {
+	{ name = "attack_players", default = 1, min = 0, max = 1, label = "Goes for players",
+		help = "Crawlers go for players too. At 0 they leave players alone entirely" },
+	{ name = "struggle_time", default = 3.5, min = 0.5, max = 15, decimals = 1, label = "Struggle time",
+		help = "Seconds a grabbed player has to fight free before going under" },
+	{ name = "sedate_time", default = 10, min = 0.1, max = 60, decimals = 1, label = "Sedate time",
+		help = "Seconds a held NPC takes to go under" },
+	{ name = "digest_time", default = 10, min = 0, max = 120, decimals = 0, label = "Digest time",
+		help = "Seconds a crawler leaves players alone after a meal, unless they've hurt it" },
+	{ name = "reroute_time", default = 0.6, min = 0.1, max = 5, decimals = 1, label = "Reroute time",
+		help = "Seconds a crawler stays over someone it can't reach before going round another way" },
+	{ name = "burst", default = 1100, min = 100, max = 3000, decimals = 0, label = "Dart speed",
+		help = "Top speed of a dart" },
+	{ name = "sight_range", default = 4000, min = 0, max = 10000, decimals = 0, label = "Sight range",
+		help = "How far crawlers can see" },
+}
+
+local convars, byConVar = {}, {}
+for _, s in ipairs(EvilCrawler.SETTINGS) do
+	s.convar = "evil_crawler_" .. s.name
+	convars[s.name] = CreateConVar(s.convar, tostring(s.default), bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED), s.help, s.min, s.max)
+	byConVar[s.convar] = s
+end
+
+function EvilCrawler.Setting(name)
+	return convars[name]:GetFloat()
+end
+
+if CLIENT then return end
+
+util.AddNetworkString("EvilCrawlerSetting")
+
+net.Receive("EvilCrawlerSetting", function(_, ply)
+	local s = byConVar[net.ReadString()]
+	local value = tonumber(net.ReadString())
+	if not s or not value or not IsValid(ply) or not ply:IsSuperAdmin() then return end
+	RunConsoleCommand(s.convar, tostring(math.Clamp(value, s.min, s.max)))
+end)

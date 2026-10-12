@@ -15,8 +15,6 @@ EvilCrawler = EvilCrawler or {}
 local Victim = EvilCrawler.Victim or {}
 EvilCrawler.Victim = Victim
 
-local cv_sedate = CreateConVar("evil_crawler_sedate_time", "10", FCVAR_ARCHIVE, "Seconds a held NPC takes to go under")
-
 local WEAR_OFF = 20 -- seconds for being fully under to wear off once it's let go
 local GETUP_SEDATION = 0.35 -- gets up once it's worn off this far
 local GETUP_TIME = 2 -- lies there at least this long after it's let go before getting up
@@ -477,7 +475,7 @@ local function Update(rag, now)
 	-- held, the teeth keep it going under; let go, it wears off
 	local dt = FrameTime()
 	if held then
-		rag.Sedation = math.min(1, rag.Sedation + dt / math.max(0.1, cv_sedate:GetFloat()))
+		rag.Sedation = math.min(1, rag.Sedation + dt / math.max(0.1, EvilCrawler.Setting("sedate_time")))
 	else
 		rag.Sedation = math.max(0, rag.Sedation - dt / WEAR_OFF)
 	end

@@ -43,7 +43,6 @@ local DRAINED = 40 -- rips until the body is as dark as it gets
 local TURN_SPEED = 35 -- degrees a second it turns the body over while eating
 local DRAG_TIME = 15 -- gives up looking for somewhere private after this long and stops where it is
 local SATED_TIME = 90
-local DIGEST_TIME = 10 -- leaves players be this long after a meal, unless they've hurt it
 local ANGER_HUNGER = 0.5 -- each step of anger shortens how long a meal lasts it by this share
 local LAIR_TRIES = 12
 local LAIR_RANGE = { 700, 2500 } -- far enough that the haul there is a long, fast one
@@ -112,7 +111,7 @@ end
 function ENT:Wants(ply)
 	if EvilCrawler.IgnoresPlayers() or ply:InVehicle() then return false end
 	if ply:LookupBone("ValveBiped.Bip01_Spine2") == nil then return false end
-	local digesting = CurTime() - (self.FedAt or -math.huge) < DIGEST_TIME
+	local digesting = CurTime() - (self.FedAt or -math.huge) < EvilCrawler.Setting("digest_time")
 	return not digesting or ply == self.Grudge
 end
 

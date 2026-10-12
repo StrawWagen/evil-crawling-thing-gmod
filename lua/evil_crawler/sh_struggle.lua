@@ -9,11 +9,8 @@ EvilCrawler.FREE_VAR = "EvilCrawlerFree" -- on the player: how loose they've wor
 EvilCrawler.OWNER_VAR = "EvilCrawlerOwner" -- on a body: the player it is
 EvilCrawler.COLOR_VAR = "EvilCrawlerColor" -- on a body: its player's colour
 
-local cv_struggle = CreateConVar("evil_crawler_struggle_time", "3.5", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED),
-	"Seconds a grabbed player has to fight free before going under")
-
 function EvilCrawler.StruggleTime()
-	return math.max(0.5, cv_struggle:GetFloat())
+	return math.max(0.5, EvilCrawler.Setting("struggle_time"))
 end
 
 function EvilCrawler.Holder(ply)

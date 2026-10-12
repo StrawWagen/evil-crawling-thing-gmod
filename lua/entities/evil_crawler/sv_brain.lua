@@ -20,17 +20,14 @@
 
 local Scent = EvilCrawler.Scent
 
-local cv_burst = CreateConVar("evil_crawler_burst", "1100", FCVAR_ARCHIVE, "Top speed of a dart")
 local cv_puppet = CreateConVar("evil_crawler_puppet", "0", 0, "Crawlers follow their spawner's crosshair instead of thinking")
 local cv_debug = CreateConVar("evil_crawler_debug_scent", "0", 0, "Draw scent trails (needs developer 1)")
-local cv_sight = CreateConVar("evil_crawler_sight_range", "4000", FCVAR_ARCHIVE, "How far crawlers can see")
-local cv_players = CreateConVar("evil_crawler_attack_players", "1", FCVAR_ARCHIVE, "Crawlers go for players too")
 local ai_ignoreplayers = GetConVar("ai_ignoreplayers")
 local ai_disabled = GetConVar("ai_disabled")
 
 -- Left alone, players are nothing to it: not seen, felt, smelt or minded.
 function EvilCrawler.IgnoresPlayers()
-	return not cv_players:GetBool() or (ai_ignoreplayers and ai_ignoreplayers:GetBool())
+	return EvilCrawler.Setting("attack_players") == 0 or (ai_ignoreplayers and ai_ignoreplayers:GetBool())
 end
 
 local THINK_INTERVAL = 0.25
@@ -56,7 +53,6 @@ local SKIP_AHEAD = 260 -- heads straight for trail nodes this close, skipping th
 local SEARCH_TIME = 8
 local SEARCH_SPREAD = 300
 local STUCK_TIME = 2.5
-local OVER_TIME = 0.6 -- right over someone it can't reach this long, it tries another way
 local HUNGRY_PULL = 2 -- how much more an NPC's trail draws it when it's hungry
 local FED_PULL = 0.3 -- and when it isn't
 local FEAR_PULL = 1.5
@@ -132,7 +128,7 @@ end
 -- Movement shows, closeness shows, and a light or a gunshot gives anyone away.
 function ENT:Visibility(ent, pos, now)
 	if not Perceivable(ent) or (ent:IsPlayer() and not self:Wants(ent)) then return 0 end
-	local range = cv_sight:GetFloat()
+	local range = EvilCrawler.Setting("sight_range")
 	local center = ent:WorldSpaceCenter()
 	local d = center:Distance(pos)
 	if d >= range then return 0 end
@@ -426,7 +422,7 @@ function ENT:Overhead(prey, now)
 		return
 	end
 	self.OverSince = self.OverSince or now
-	if now - self.OverSince > OVER_TIME then
+	if now - self.OverSince > EvilCrawler.Setting("reroute_time") then
 		self.OverSince = nil
 		self:Veer(now, 0.4)
 	end
@@ -472,7 +468,7 @@ function ENT:Steer()
 		end
 	end
 
-	local burst = cv_burst:GetFloat()
+	local burst = EvilCrawler.Setting("burst")
 	if self.DetourUntil and now < self.DetourUntil then
 		return self:GetPos() + self.Detour, (self.Pace or 0) * burst, SNAP
 	end
