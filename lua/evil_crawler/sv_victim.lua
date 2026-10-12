@@ -7,9 +7,10 @@
 -- dies once it's been eaten enough, when its head goes, or when someone
 -- shoots the body.
 -- A player who couldn't fight their way out of the coil goes the same way,
--- already most of the way under: they watch from outside their body, and get
--- back up in it with what they were carrying if it's ever dropped and they
--- come round.
+-- already most of the way under. They watch the crawler from outside their
+-- body (cl_struggle.lua) while it has them, and right to the end. If it ever
+-- drops them, they watch the body instead, and get back up in it with what
+-- they were carrying once they come round.
 EvilCrawler = EvilCrawler or {}
 local Victim = EvilCrawler.Victim or {}
 EvilCrawler.Victim = Victim
@@ -277,7 +278,7 @@ function Victim.Take(ply, holder)
 	ply.EvilCrawlerKit = kit
 	ply:StripWeapons()
 	ply:Spectate(OBS_MODE_CHASE)
-	ply:SpectateEntity(rag)
+	ply:SpectateEntity(IsValid(holder) and holder or rag)
 
 	rag:SetNW2Entity(EvilCrawler.OWNER_VAR, ply)
 	rag:SetNW2Vector(EvilCrawler.COLOR_VAR, ply:GetPlayerColor())
@@ -302,6 +303,14 @@ local function Lucid(rag)
 	return 1 - rag.Sedation
 end
 
+-- What a player in the body watches: whatever has hold of it, or the body
+-- itself once it's dropped.
+local function Watched(rag)
+	local holder = rag.EvilCrawlerHolder
+	if IsValid(holder) and holder:GetVictim() == rag then return holder end
+	return rag
+end
+
 -- The body is just a body now.
 function Victim.Kill(rag, attacker)
 	local npc = rag.EvilCrawlerOwner
@@ -319,7 +328,7 @@ function Victim.Kill(rag, attacker)
 		npc:AddDeaths(1)
 		hook.Run("PlayerDeath", npc, attacker, attacker)
 		npc:Spectate(OBS_MODE_CHASE)
-		npc:SpectateEntity(rag)
+		npc:SpectateEntity(Watched(rag))
 		return
 	end
 	npc:SetHealth(0)
@@ -455,6 +464,10 @@ local function Update(rag, now)
 		return
 	end
 	npc:SetPos(rag:GetPos())
+	if npc:IsPlayer() then
+		local watch = Watched(rag)
+		if npc:GetObserverTarget() ~= watch then npc:SpectateEntity(watch) end
+	end
 
 	local holder = rag.EvilCrawlerHolder
 	local held = IsValid(holder) and holder:GetVictim() == rag

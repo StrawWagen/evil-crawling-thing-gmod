@@ -1,7 +1,8 @@
 -- What a player in the coil sees: the jump key, jolting with every press, and
 -- how loose they've worked themselves; the world closing in and draining as
--- they go under. Once they've lost and are watching their own body, it stays
--- that way.
+-- they go under. Once they've lost, they're outside their body, on a slow
+-- orbit round the crawler that has it, made to watch it eaten. The mouse can
+-- swing the orbit round and tip it up or down, but not look away.
 EvilCrawler = EvilCrawler or {}
 
 local ACT_GRAPPLE = EvilCrawler.ACT_GRAPPLE
@@ -13,6 +14,13 @@ local BAR_GAP = 14
 local PULSE_TIME = 0.12
 local VIGNETTE_STEPS = 24
 local VIGNETTE_DEPTH = 0.45 -- share of the screen height the dark reaches in, fully under
+local WATCHING = 0.55 -- how far under it looks while watching it eat them, so there's still something to see
+local ORBIT_DISTANCE = 3.6 -- body heights out from the crawler
+local ORBIT_DRIFT = 7 -- degrees a second the orbit turns on its own
+local ORBIT_PITCH = { 5, 75 } -- how low and high over it the camera can go, in degrees off its surface
+local ORBIT_TILT = 25 -- degrees over it the camera sits with the mouse level
+local FOCUS_RATE = 6 -- how fast the camera's attention moves between the crawler and a dropped body
+local UP_RATE = 3 -- and how fast the orbit tips to match the surface it's on
 
 local BONE = Color(170, 160, 145)
 local KEY_BG = Color(10, 8, 9, 200)
@@ -21,6 +29,14 @@ local BAR_BG = Color(255, 255, 255, 25)
 surface.CreateFont("EvilCrawlerKey", { font = "Roboto", size = 26, weight = 800 })
 
 local shownFree = 0
+
+-- What the local player is made to watch, now they're outside their body:
+-- the crawler that has it, or the body once it's dropped.
+function EvilCrawler.Devoured(ply)
+	local target = ply:GetObserverTarget()
+	if not IsValid(target) then return end
+	if target:GetClass() == "evil_crawler" or target:GetNW2Entity(EvilCrawler.OWNER_VAR) == ply then return target end
+end
 
 -- How far under the local player is, 0..1, and the crawler that has them.
 local function Pressure()
@@ -33,8 +49,7 @@ local function Pressure()
 		return math.Clamp((CurTime() - holder:GetActStart()) / EvilCrawler.StruggleTime(), 0, 1), holder
 	end
 
-	local watching = ply:GetObserverTarget()
-	if IsValid(watching) and watching:GetNW2Entity(EvilCrawler.OWNER_VAR) == ply then return 1 end
+	if EvilCrawler.Devoured(ply) then return WATCHING end
 	return 0
 end
 
@@ -113,4 +128,37 @@ end)
 hook.Add("EntityNetworkedVarChanged", "EvilCrawlerStruggle", function(ent, name, _, value)
 	if name ~= EvilCrawler.COLOR_VAR then return end
 	ent.GetPlayerColor = function() return value end
+end)
+
+local focus, orbitUp
+
+hook.Add("CalcView", "EvilCrawlerDevoured", function(ply, _, angles, fov)
+	local target = EvilCrawler.Devoured(ply)
+	if not target then
+		focus, orbitUp = nil, nil
+		return
+	end
+
+	local crawler = target:GetClass() == "evil_crawler"
+	local want = crawler and target:GetPos() or target:WorldSpaceCenter()
+	local wantUp = crawler and target:GetUp() or vector_up
+	local dt = FrameTime()
+	focus = focus and LerpVector(math.min(1, dt * FOCUS_RATE), focus, want) or want
+	orbitUp = orbitUp and LerpVector(math.min(1, dt * UP_RATE), orbitUp, wantUp):GetNormalized() or wantUp
+
+	-- round the crawler in the plane of the surface it's on, so on a ceiling
+	-- they're looking up at it
+	local yaw = math.rad(angles.y + 180 + RealTime() * ORBIT_DRIFT)
+	local around = Vector(math.cos(yaw), math.sin(yaw), 0)
+	around = around - orbitUp * around:Dot(orbitUp)
+	if around:LengthSqr() < 1e-4 then around = orbitUp:Angle():Right() end
+	around:Normalize()
+	local pitch = math.rad(math.Clamp(angles.p + ORBIT_TILT, ORBIT_PITCH[1], ORBIT_PITCH[2]))
+	local out = around * math.cos(pitch) + orbitUp * math.sin(pitch)
+
+	local reach = (crawler and target.BodyHeight or 40) * ORBIT_DISTANCE
+	local tr = util.TraceLine({ start = focus, endpos = focus + out * reach, mask = MASK_SOLID_BRUSHONLY })
+	local eye = tr.HitPos + tr.HitNormal * 6
+
+	return { origin = eye, angles = (focus - eye):Angle(), fov = fov, drawviewer = false }
 end)
