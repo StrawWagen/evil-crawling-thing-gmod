@@ -215,6 +215,73 @@ timer.Create("EvilCrawlerScent", DROP_INTERVAL, 0, function()
 	if cv_debug:GetBool() then DrawDebug(now) end
 end)
 
+-- Show scent trails (cl_scent.lua): every player is sent the scent near
+-- them, each node set down on the ground under it, and which of it the
+-- crawlers are following.
+local SHOW_INTERVAL = 0.5
+local SHOW_RANGE = 2500
+local SHOW_MAX = 600 -- nodes a player is sent at once
+local GROUND = Vector(0, 0, 72)
+
+util.AddNetworkString("EvilCrawlerScent")
+
+local function Ground(node)
+	if node.ground then return end
+	local tr = util.TraceLine({ start = node.pos + Vector(0, 0, 8), endpos = node.pos - GROUND, mask = MASK_SOLID_BRUSHONLY })
+	node.ground = tr.Hit and tr.HitPos or node.pos
+	node.normal = tr.Hit and tr.HitNormal or vector_up
+end
+
+local function ShowScent()
+	if EvilCrawler.Setting("show_scent") == 0 then return end
+	local now = CurTime()
+	local heads, followed = {}, {}
+	for _, crawler in ipairs(ents.FindByClass("evil_crawler")) do
+		local node = crawler.Trail
+		if node and not node.dead then
+			heads[node] = true
+			followed[node.trail] = true
+		end
+	end
+
+	local r2 = SHOW_RANGE * SHOW_RANGE
+	for _, ply in ipairs(player.GetHumans()) do
+		local eye = ply:EyePos()
+		local budget = SHOW_MAX
+		net.Start("EvilCrawlerScent")
+		for trail in pairs(Scent.trails) do
+			local near, last = {}, nil
+			local node = trail.first
+			while node and budget > 0 do
+				if not node.dead and node.pos:DistToSqr(eye) < r2 then
+					Ground(node)
+					near[#near + 1] = { node = node, linked = last ~= nil and node.prev == last }
+					last = node
+					budget = budget - 1
+				end
+				node = node.next
+			end
+			if #near > 0 then
+				net.WriteBool(true)
+				net.WriteBool(near[1].node.npc)
+				net.WriteBool(followed[trail] or false)
+				net.WriteUInt(#near, 12)
+				for _, n in ipairs(near) do
+					net.WriteVector(n.node.ground)
+					net.WriteNormal(n.node.normal)
+					net.WriteUInt(math.Clamp(math.floor(Scent.Intensity(n.node, now) * 255), 0, 255), 8)
+					net.WriteBool(n.node.fear)
+					net.WriteBool(heads[n.node] or false)
+					net.WriteBool(n.linked)
+				end
+			end
+		end
+		net.WriteBool(false)
+		net.Send(ply)
+	end
+end
+timer.Create("EvilCrawlerShowScent", SHOW_INTERVAL, 0, ShowScent)
+
 hook.Add("EntityTakeDamage", "EvilCrawlerScent", function(ent)
 	if ent:IsPlayer() or ent:IsNPC() then ent.EvilCrawlerHurt = CurTime() end
 end)

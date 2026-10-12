@@ -24,6 +24,9 @@ EvilCrawler.SETTINGS = {
 		help = "Top speed of a dart" },
 	{ name = "sight_range", default = 4000, min = 0, max = 10000, decimals = 0, label = "Sight range",
 		help = "How far crawlers can see" },
+	{ name = "show_scent", default = 0, min = 0, max = 1, label = "Show scent trails",
+		help = "Marks scent trails on the ground for everyone: players amber, NPCs green, fear magenta, "
+			.. "a trail a crawler is following cyan, and the spot it's heading for ringed" },
 }
 
 local convars, byConVar = {}, {}
