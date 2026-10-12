@@ -106,11 +106,18 @@ end
 
 -- Players are always fair game, fed or not, once it's had a moment to get
 -- its last meal down. Anyone who's hurt it, even sooner.
-function ENT:WouldTake(ply)
+-- Whether it has any interest in a player at all right now. Anyone it
+-- couldn't take, it doesn't see, feel or smell, so it never hangs about over
+-- someone it isn't going to grab.
+function ENT:Wants(ply)
+	if EvilCrawler.IgnoresPlayers() or ply:InVehicle() then return false end
+	if ply:LookupBone("ValveBiped.Bip01_Spine2") == nil then return false end
 	local digesting = CurTime() - (self.FedAt or -math.huge) < DIGEST_TIME
-	return not EvilCrawler.IgnoresPlayers() and (not digesting or ply == self.Grudge)
-		and ply:Alive() and not ply:InVehicle() and not ply.EvilCrawlerVictim
-		and ply:LookupBone("ValveBiped.Bip01_Spine2") ~= nil
+	return not digesting or ply == self.Grudge
+end
+
+function ENT:WouldTake(ply)
+	return self:Wants(ply) and ply:Alive() and not ply.EvilCrawlerVictim
 end
 
 function ENT:CanAttack(ent)
@@ -129,6 +136,7 @@ function ENT:StartStrike(npc)
 	self:SetActStart(CurTime())
 	self:SetState("strike")
 	self.Lunged = false
+	self.DetourUntil = nil -- or it darts off mid-strike
 end
 
 -- Ends whatever it's doing. A victim that dodged the strike is fair game

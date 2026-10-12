@@ -56,6 +56,7 @@ local SKIP_AHEAD = 260 -- heads straight for trail nodes this close, skipping th
 local SEARCH_TIME = 8
 local SEARCH_SPREAD = 300
 local STUCK_TIME = 2.5
+local OVER_TIME = 0.6 -- right over someone it can't reach this long, it tries another way
 local HUNGRY_PULL = 2 -- how much more an NPC's trail draws it when it's hungry
 local FED_PULL = 0.3 -- and when it isn't
 local FEAR_PULL = 1.5
@@ -103,7 +104,6 @@ local function Perceivable(ent)
 		and not ent.EvilCrawlerVictim
 		and ent:GetMoveType() ~= MOVETYPE_NOCLIP
 		and ent:GetObserverMode() == OBS_MODE_NONE
-		and not EvilCrawler.IgnoresPlayers()
 end
 
 -- Distance to a point measured along the surface the body is on, so a
@@ -118,7 +118,7 @@ function ENT:Reached(point)
 end
 
 function ENT:Feels(ent, pos)
-	if not Perceivable(ent) then return false end
+	if not Perceivable(ent) or (ent:IsPlayer() and not self:Wants(ent)) then return false end
 	local d = ent:WorldSpaceCenter():Distance(pos)
 	if d < TOUCH_RANGE then return true, d end
 	if self.Spotted[ent] and self.InView[ent] then return true, d end
@@ -131,7 +131,7 @@ end
 -- How plainly it can see `ent` from `pos` right now, 0 when it can't.
 -- Movement shows, closeness shows, and a light or a gunshot gives anyone away.
 function ENT:Visibility(ent, pos, now)
-	if not Perceivable(ent) then return 0 end
+	if not Perceivable(ent) or (ent:IsPlayer() and not self:Wants(ent)) then return 0 end
 	local range = cv_sight:GetFloat()
 	local center = ent:WorldSpaceCenter()
 	local d = center:Distance(pos)
@@ -236,7 +236,8 @@ end
 
 -- How strongly a bit of scent draws it.
 function ENT:Appeal(node, now)
-	if not node.npc and EvilCrawler.IgnoresPlayers() then return 0 end
+	local owner = node.trail.owner
+	if not node.npc and not (IsValid(owner) and self:Wants(owner)) then return 0 end
 	local w = 1
 	if node.npc then w = self:IsHungry() and HUNGRY_PULL or FED_PULL end
 	if node.fear then w = math.max(w, 1) * FEAR_PULL end
@@ -270,6 +271,7 @@ function ENT:SetState(state)
 		local first = r.freeze or r.go
 		self.Still = r.freeze ~= nil
 		self.FitUntil = first and CurTime() + math.Rand(first[1], first[2]) or 0
+		self.OverSince = nil
 	end
 	self.State = state
 	self.Pace = r.pace
@@ -313,10 +315,7 @@ function ENT:Ponder()
 		self:SetState("hunt")
 		self.Goal = prey:GetPos()
 		self.LastKnown = self:Lead(prey)
-		-- hanging from the ceiling right over them: drop
-		if self.BodyUp.z < -0.5 and self:Reached(prey:GetPos()) then
-			self.LetGoUntil = now + 0.4
-		end
+		self:Overhead(prey, now)
 		return
 	end
 	if self.State == "hunt" then
@@ -402,10 +401,34 @@ function ENT:CheckProgress(now)
 		if self.BodyUp.z < -0.5 then
 			self.LetGoUntil = now + 0.4
 		else
-			self.Detour = self:Around(self:GetPos(), 1) - self:GetPos()
-			self.Detour = self.Detour:GetNormalized() * 400
-			self.DetourUntil = now + 1.5
+			self:Veer(now, 1.5)
 		end
+	end
+end
+
+-- Darts off sideways for a moment.
+function ENT:Veer(now, time)
+	self.Detour = (self:Around(self:GetPos(), 1) - self:GetPos()):GetNormalized() * 400
+	self.DetourUntil = now + time
+end
+
+-- Right over someone and still out of reach (they're out from the wall it's
+-- on, under the ceiling, up on something): drop on them if they're below it,
+-- otherwise go round another way. Never sits there.
+function ENT:Overhead(prey, now)
+	if not self:Reached(prey:GetPos()) then
+		self.OverSince = nil
+		return
+	end
+	if (prey:WorldSpaceCenter() - self:GetPos()):Dot(self.BodyUp) < 0 then
+		self.LetGoUntil = now + 0.4
+		self.OverSince = nil
+		return
+	end
+	self.OverSince = self.OverSince or now
+	if now - self.OverSince > OVER_TIME then
+		self.OverSince = nil
+		self:Veer(now, 0.4)
 	end
 end
 
