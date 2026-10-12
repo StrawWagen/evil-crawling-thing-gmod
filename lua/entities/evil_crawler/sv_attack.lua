@@ -335,7 +335,7 @@ end
 local function NearestPlayer(spot)
 	local nearest = math.huge
 	for _, ply in ipairs(player.GetAll()) do
-		if ply:Alive() then nearest = math.min(nearest, ply:GetPos():Distance(spot)) end
+		if ply:Alive() and ply:GetObserverMode() == OBS_MODE_NONE then nearest = math.min(nearest, ply:GetPos():Distance(spot)) end
 	end
 	return nearest
 end
@@ -587,6 +587,10 @@ end
 -- Brain side: where to go during each act, and when to move on.
 function ENT:PonderAct(now)
 	local act = self:GetAct()
+	if act ~= ACT_STUN and not IsValid(self:GetVictim()) then
+		self:Release() -- removed out from under it
+		return
+	end
 	if act == ACT_STRIKE then
 		-- a player won't stand still for the windup: it keeps after them
 		local victim = self:GetVictim()
