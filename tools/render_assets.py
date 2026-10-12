@@ -20,7 +20,7 @@ import os
 import sys
 
 import bpy
-from mathutils import Vector
+from mathutils import Quaternion, Vector
 
 # ---------------------------------------------------------------- settings
 
@@ -28,6 +28,7 @@ SCALE = 0.02  # metres per game unit
 SIDES = 20  # around each limb
 SUB = 10  # curve samples per joint
 SEED = 777
+REAR_ARC = 45  # legs pointing within this many degrees of the camera reach for it, in shots that ask
 SUN = 4  # sun strength for a light_environment at full brightness
 LAMP = 0.6  # watts per unit of a map light's brightness
 SKY = 1.0
@@ -52,6 +53,11 @@ SHOTS = {
                       look=(0.2, 0, -0.45), lens=40, exposure=0.4),
     "preview_floor": dict(at=(-2000, -3300, -200), toward=(0, 0, -1), yaw=30, size=(1920, 1080), cam=(-6.0, -4.0, 2.8),
                           look=(0.4, 0, -0.4), lens=35, exposure=1.6),
+    # backed into the brick hall's north-west corner, low, as it comes out of
+    # the sunbeams: a widescreen plate for a video thumbnail
+    "clickbait": dict(at=(-2420, -1300, 0), toward=(0, 0, -1), cam_world=(-2815, -1095, -112), size=(2560, 1440),
+                      look=(0, 0, 0.1), lens=60, roll=-7, fstop=2.8, rear=True, lead=0.6, exposure=0.6,
+                      flashlight=(3000, 40)),
     "preview_ceiling": dict(at=(-2400, -1500, 100), toward=(0, 0, 1), yaw=0, size=(1920, 1080), cam=(2.5, 5.5, 4.4),
                             look=(0, 0, -0.3), lens=28, exposure=1.4,
                             fill=[("AREA", (2, 4, 3.5), 40, (0.6, 0.72, 1.0), 2.0)]),
@@ -132,7 +138,7 @@ def solve_chain(points, lengths, root, target, iterations):
             points[i] = points[i - 1] + (points[i] - points[i - 1]).normalized() * lengths[i - 1]
 
 
-def pose(creature, up, fwd, t, feel=None, origin=Vector(), agitation=0.6):
+def pose(creature, up, fwd, t, feel=None, origin=Vector(), lead=Vector(), agitation=0.6):
     """Every leg's joint chain, standing h off the surface through the origin
     whose normal is `up`. Legs facing `feel` rear up at it, as cl_init does
     for a player in front of it."""
@@ -153,13 +159,20 @@ def pose(creature, up, fwd, t, feel=None, origin=Vector(), agitation=0.6):
     for leg in creature["legs"]:
         root = pos + world(leg["root"])
         yaw = math.radians(leg["angle"])
-        rest = pos + (fwd * math.cos(yaw) + left * math.sin(yaw)) * (leg["length"] * leg["spread"])
+        rest = pos + (fwd * math.cos(yaw) + left * math.sin(yaw)) * (leg["length"] * leg["spread"]) + lead
         foot = rest - up * (rest - origin).dot(up)  # on the surface
-        if threat is not None and abs((leg["angle"] - threat + 180) % 360 - 180) < 35:
-            aim = root + (feel - root).normalized() * (leg["length"] * 0.75) + up * (leg["length"] * 0.25)
-            foot = aim + wobble(t * 3, leg["phase"], leg["freq"]) * (leg["length"] * 0.04)
+        bow_k = 0.35
+        off = (leg["angle"] - threat + 180) % 360 - 180 if threat is not None else 180
+        if abs(off) < REAR_ARC:
+            # reaching for whoever's in front: fanned out round them and
+            # stretched nearly straight, so the slack doesn't bow up
+            to = (feel - root).normalized()
+            to = Quaternion(up, math.radians(off * 1.2)) @ to
+            to = (to + up * (0.12 + 0.2 * math.sin(leg["phase"]))).normalized()
+            foot = root + to * (leg["length"] * 0.9) + wobble(t * 3, leg["phase"], leg["freq"]) * (leg["length"] * 0.03)
+            bow_k = 0.12
         n = leg["segments"] + 1
-        bow = up * (leg["length"] * 0.35)
+        bow = up * (leg["length"] * bow_k)
         pts = []
         for i in range(n):
             f = i / (n - 1)
@@ -386,6 +399,8 @@ def build(shot, seed, t, map_dir):
     origin, up = surface_at(shot["at"], shot["toward"])
     yaw = math.radians(shot.get("yaw", 0))
     fwd = Vector((math.cos(yaw), math.sin(yaw), 0))
+    if "cam_world" in shot:  # facing a camera placed in the map
+        fwd = Vector(shot["cam_world"]) - origin
     fwd = (fwd - up * fwd.dot(up))
     if fwd.length < 1e-3:
         fwd = up.orthogonal()
@@ -393,14 +408,21 @@ def build(shot, seed, t, map_dir):
     left = up.cross(fwd)
     frame = lambda v: origin + fwd * (v[0] * h) + left * (v[1] * h) + up * (v[2] * h)
 
-    cam_pos = frame(shot["cam"])
+    cam_pos = Vector(shot["cam_world"]) if "cam_world" in shot else frame(shot["cam"])
+    feel = cam_pos if shot.get("rear") else None  # the legs nearest the camera rear up at it
+    lead = fwd * (shot.get("lead", 0) * h)  # feet reaching ahead, as when it's coming on fast
     flesh = material_flesh()
-    for i, (leg, chain) in enumerate(pose(creature, up, fwd, t, None, origin)):
+    for i, (leg, chain) in enumerate(pose(creature, up, fwd, t, feel, origin, lead)):
         v, f, c = tube(chain, leg)
         add_mesh("Leg%d" % i, v, f, c, material=flesh)
 
     for kind, at, energy, color, size in shot.get("fill", ()):
         light(kind, frame(at), origin + up * h, energy, color, size=size)
+
+    if "flashlight" in shot:  # held by whoever's backed into the corner
+        energy, cone = shot["flashlight"]
+        body = origin + up * h
+        light("SPOT", cam_pos + (body - cam_pos).normalized() * 12, body, energy, (1.0, 0.93, 0.8), size=0.05, spot=cone)
 
     cam_data = bpy.data.cameras.new("Camera")
     cam_data.lens = shot["lens"]
@@ -408,7 +430,13 @@ def build(shot, seed, t, map_dir):
     scene.collection.objects.link(cam)
     cam.location = cam_pos * SCALE
     target = frame(shot["look"]) + up * h
-    cam.rotation_euler = (target * SCALE - cam.location).to_track_quat("-Z", "Y").to_euler()
+    aim = (target * SCALE - cam.location).to_track_quat("-Z", "Y")
+    aim = aim @ Quaternion((0, 0, 1), math.radians(shot.get("roll", 0)))
+    cam.rotation_euler = aim.to_euler()
+    if "fstop" in shot:
+        cam_data.dof.use_dof = True
+        cam_data.dof.focus_distance = (target - cam_pos).length * SCALE
+        cam_data.dof.aperture_fstop = shot["fstop"]
     scene.camera = cam
     return scene
 
