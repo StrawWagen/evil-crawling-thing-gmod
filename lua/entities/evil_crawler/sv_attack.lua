@@ -18,6 +18,7 @@ local ATTACK_REACH = 140
 local MISS_REACH = ATTACK_REACH * 1.5 -- got this far away during the windup: the strike misses
 local PULL_TIME = EvilCrawler.PULL_TIME
 local TRAIL_RATE = 1.5 -- how fast a carried body swings round behind it
+local TRAIL_SPEED = 250 -- past this speed it swings round proportionally faster
 local FEEDERS = EvilCrawler.FEEDERS
 local BITE_IN, BITE_RIP = EvilCrawler.BITE_IN, EvilCrawler.BITE_RIP
 local BiteCycle, BiteBone = EvilCrawler.BiteCycle, EvilCrawler.BiteBone
@@ -35,6 +36,7 @@ local DRAG_TIME = 15 -- gives up looking for somewhere private after this long a
 local SATED_TIME = 90
 local ANGER_HUNGER = 0.5 -- each step of anger shortens how long a meal lasts it by this share
 local LAIR_TRIES = 12
+local LAIR_RANGE = { 700, 2500 } -- far enough that the haul there is a long, fast one
 local OUT_OF_SIGHT = 1500 -- what a hiding place gains from being somewhere `threat` can't see
 local DISTURB_RANGE = 330
 
@@ -173,7 +175,7 @@ function ENT:FindLair(threat)
 		local dir = VectorRand()
 		dir.z = dir.z * 0.3
 		dir:Normalize()
-		local tr = self:Trace(pos, pos + dir * math.Rand(500, 1500))
+		local tr = self:Trace(pos, pos + dir * math.Rand(LAIR_RANGE[1], LAIR_RANGE[2]))
 		local spot = tr.HitPos - dir * 32
 
 		local score = math.min(NearestPlayer(spot), 3000)
@@ -214,8 +216,10 @@ end
 function ENT:HoldPoint(now, dt)
 	local pos, up, h = self:GetPos(), self.BodyUp, self.BodyHeight
 	local dir = self.CarryDir or -self.Facing
-	if self.Vel:LengthSqr() > 400 then
-		dir = LerpVector(1 - math.exp(-dt * TRAIL_RATE), dir, -self.Facing)
+	local speed = self.Vel:Length()
+	if speed > 20 then
+		local rate = TRAIL_RATE * math.max(1, speed / TRAIL_SPEED)
+		dir = LerpVector(1 - math.exp(-dt * rate), dir, -self.Facing)
 	end
 	dir = dir - up * dir:Dot(up)
 	if dir:LengthSqr() < 1e-4 then dir = -self.Facing end
@@ -258,10 +262,12 @@ end
 function ENT:HoldCorpse(corpse, hold, stiffness, grip)
 	local held = self:Held(corpse)
 	local side = self.BodyUp:Cross(self.Facing)
+	self.HoldLag = 0
 	for i, phys in ipairs(held) do
 		if IsValid(phys) then
 			local at = hold + side * ((i - (#held + 1) / 2) * 7)
 			local p = phys:GetPos()
+			self.HoldLag = math.max(self.HoldLag, p:Distance(at))
 			if p:Distance(at) > 600 then
 				self:Release() -- snagged on something; leave it
 				return

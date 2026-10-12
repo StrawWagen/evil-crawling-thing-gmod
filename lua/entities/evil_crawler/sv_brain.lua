@@ -24,7 +24,7 @@ local ai_ignoreplayers = GetConVar("ai_ignoreplayers")
 local THINK_INTERVAL = 0.25
 local QUICK_INTERVAL = 0.1 -- while darting, or it overshoots everything
 local SNAP = 22 -- how hard it starts and stops
-local EASE = 6 -- and how gently, hauling a body
+local SNAGGED = { 120, 400 } -- a body dragging this far behind slows it to a crawl, to yank it free
 local SNIFF_RADIUS = 400
 local SCENT_THRESHOLD = 0.12 -- faintest scent worth following
 local TOUCH_RANGE = 220
@@ -57,12 +57,12 @@ local RHYTHM = {
 	track = { pace = 0.7, go = { 0.4, 1.1 }, stop = { 0.3, 1.2 } },
 	hunt = { pace = 1, go = { 0.6, 1.5 }, stop = { 0.08, 0.3 }, freeze = { 0.3, 0.7 } },
 	strike = { pace = 0 },
-	drag = { pace = 0.14 },
+	drag = { pace = 1.15 }, -- bolts with the body, flat out, never stopping
 	feed = { pace = 0 },
 	flee = { pace = 1.2 },
 	hide = { pace = 0 },
 }
-local MOOD = { roam = 0, search = 1, track = 1, hunt = 2, strike = 2, drag = 1, feed = 1, flee = 2, hide = 0 }
+local MOOD = { roam = 0, search = 1, track = 1, hunt = 2, strike = 2, drag = 2, feed = 1, flee = 2, hide = 0 }
 local CHASING = { search = true, track = true, hunt = true }
 local STATE_COLOR = {
 	roam = Color(120, 120, 120), search = Color(255, 200, 0), track = Color(255, 120, 0), hunt = Color(255, 0, 0),
@@ -308,15 +308,17 @@ function ENT:Steer()
 	end
 
 	local burst = cv_burst:GetFloat()
-	local accel = self.State == "drag" and EASE or SNAP
 	if self.DetourUntil and now < self.DetourUntil then
-		return self:GetPos() + self.Detour, (self.Pace or 0) * burst, accel
+		return self:GetPos() + self.Detour, (self.Pace or 0) * burst, SNAP
 	end
 	self:Fits(now)
-	if self.Still then return nil, 0, accel end
+	if self.Still then return nil, 0, SNAP end
 	local pace = self.Pace or 0
 	if CHASING[self.State] then pace = pace * (1 + ANGER_PACE * (self.Anger or 0)) end
-	return self.Goal, pace * burst, accel
+	if self.State == "drag" then
+		pace = pace * (1 - math.Clamp(((self.HoldLag or 0) - SNAGGED[1]) / (SNAGGED[2] - SNAGGED[1]), 0, 0.9))
+	end
+	return self.Goal, pace * burst, SNAP
 end
 
 function ENT:OnTakeDamage(dmg)
