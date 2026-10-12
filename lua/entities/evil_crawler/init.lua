@@ -8,7 +8,6 @@ include("shared.lua")
 include("sv_brain.lua")
 include("sv_attack.lua")
 
-local cv_speed = CreateConVar("evil_crawler_speed", "220", FCVAR_ARCHIVE, "Top crawl speed")
 local cv_probes = CreateConVar("evil_crawler_debug_probes", "0", 0, "Draw surface probes (needs developer 1)")
 
 local GRAVITY = 600
@@ -17,6 +16,8 @@ local HOLD_RATE = 10 -- how fast it settles back to standing height
 local GRIP = 0.05 -- probe weight needed to hold on; below it, it falls
 local REGRIP = 0.2 -- probe weight needed to catch hold again while falling
 local PROBE_REACH = 2.2 -- probes feel this many body heights out
+local RUSH_SPEED = 250 -- past this speed it holds the surface proportionally harder, so it can't fly off
+local CROUCH = { 300, 1000, 0.35 } -- between these speeds it flattens toward the surface by up to this share
 
 -- Probe directions in body space (x forward, y left, z up): straight down,
 -- two cones fanning out below, and a horizontal ring.
@@ -165,25 +166,29 @@ function ENT:Crawl(dt)
 
 	self.Falling = grip < (self.Falling and REGRIP or GRIP) or CurTime() < (self.LetGoUntil or 0)
 
+	local speed = self.Vel:Length()
+	local rush = math.max(1, speed / RUSH_SPEED)
+	local crouch = math.Clamp((speed - CROUCH[1]) / (CROUCH[2] - CROUCH[1]), 0, 1) * CROUCH[3]
+
 	if not self.Falling then
-		up, fwd = Turn(up, fwd, normal, 1 - math.exp(-dt * STICK_RATE))
+		up, fwd = Turn(up, fwd, normal, 1 - math.exp(-dt * STICK_RATE * rush))
 
 		local wish = Vector()
-		local target, pace = self:Steer()
+		local target, topSpeed, accel = self:Steer()
 		if target then
 			local to = target - pos
 			local flat = to - up * to:Dot(up)
 			local along = flat:Length()
 			-- puppeted at a point straight overhead: carry on until a wall turns it that way
 			if self.Puppeting and along < to:Length() * 0.3 then flat, along = fwd, h * 3 end
-			wish = flat:GetNormalized() * cv_speed:GetFloat() * pace * math.Clamp((along - 24) / (h * 1.5), 0, 1)
+			wish = flat:GetNormalized() * topSpeed * math.Clamp((along - 24) / (h * 1.5), 0, 1)
 		end
 
-		self.Vel = LerpVector(1 - math.exp(-dt * 6), self.Vel, wish)
+		self.Vel = LerpVector(1 - math.exp(-dt * accel), self.Vel, wish)
 		self.Vel = self.Vel - up * self.Vel:Dot(up)
 
-		local err = h - (pos - anchor):Dot(normal)
-		pos = self:SafeMove(pos, pos + self.Vel * dt + normal * (err * (1 - math.exp(-dt * HOLD_RATE))))
+		local err = h * (1 - crouch) - (pos - anchor):Dot(normal)
+		pos = self:SafeMove(pos, pos + self.Vel * dt + normal * (err * (1 - math.exp(-dt * HOLD_RATE * rush))))
 	else
 		up, fwd = Turn(up, fwd, vector_up, 1 - math.exp(-dt * 3))
 		self.Vel = self.Vel - vector_up * (GRAVITY * dt)
@@ -191,7 +196,7 @@ function ENT:Crawl(dt)
 	end
 
 	if not self.Falling and self.Vel:LengthSqr() > 100 then
-		fwd = LerpVector(1 - math.exp(-dt * 6), fwd, self.Vel:GetNormalized())
+		fwd = LerpVector(1 - math.exp(-dt * 6 * rush), fwd, self.Vel:GetNormalized())
 	end
 	fwd = fwd - up * fwd:Dot(up)
 	if fwd:LengthSqr() < 1e-4 then fwd = up:Angle():Up() end

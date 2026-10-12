@@ -7,6 +7,9 @@ local cv_debug = CreateClientConVar("evil_crawler_debug", "0", false, false, "Dr
 local LEAD_TIME = 0.18 -- feet aim this far ahead along the body's velocity
 local SNAP_GAP = 0.5 -- seconds without an update before limbs are re-planted from scratch
 local MAX_AIRBORNE = 0.4 -- share of legs allowed mid-step at once
+local SKITTER = { 400, 1000, 0.6 } -- between these speeds steps quicken in proportion, go low, and up to this share of legs is up at once
+local MAX_LEAD = 0.9 -- feet never aim more than this many body heights ahead
+local FOOT_SOUND_GAP = 0.03 -- a skitter is a clatter, not a hundred sounds at once
 local MOOD_AGITATION = { [0] = 0, [1] = 0.45, [2] = 1 } -- calm, on a scent, in contact
 local THREAT_ARC = 35 -- legs pointing within this many degrees of a player rear up at them
 local IK_ITERATIONS = 3
@@ -278,7 +281,7 @@ function ENT:UpdateLimbs()
 		self.Agitation = 0
 	end
 
-	self.SmoothVel = LerpVector(math.min(1, dt * 10), self.SmoothVel, (pos - self.LastPos) / dt)
+	self.SmoothVel = LerpVector(math.min(1, dt * 20), self.SmoothVel, (pos - self.LastPos) / dt)
 	self.LastPos = pos
 	local speed = self.SmoothVel:Length()
 
@@ -307,7 +310,12 @@ function ENT:UpdateLimbs()
 	local function toWorld(v) return pos + fwd * v.x + left * v.y + up * v.z end
 
 	local lead = self.SmoothVel * LEAD_TIME
-	local hurry = math.Clamp(1 - speed * 0.0015, 0.45, 1)
+	local maxLead = self.BodyHeight * MAX_LEAD
+	if lead:LengthSqr() > maxLead * maxLead then lead = lead:GetNormalized() * maxLead end
+	local skitter = math.Clamp((speed - SKITTER[1]) / (SKITTER[2] - SKITTER[1]), 0, 1)
+	local hurry = math.Clamp(1 - speed * 0.0015, 0.45, 1) * math.min(1, SKITTER[1] / math.max(speed, 1))
+	local low = 1 - 0.65 * skitter
+	local loud = math.Clamp(speed / SKITTER[2], 0, 1)
 	local shake = 0.04 + 0.04 * agit
 	local twitchRate = 0.2 + 1.2 * agit
 
@@ -317,7 +325,7 @@ function ENT:UpdateLimbs()
 		threatYaw = math.deg(math.atan2(d:Dot(left), d:Dot(fwd)))
 	end
 
-	local airborne, maxAirborne = 0, math.ceil(#morph.legs * MAX_AIRBORNE)
+	local airborne, maxAirborne = 0, math.ceil(#morph.legs * Lerp(skitter, MAX_AIRBORNE, SKITTER[3]))
 	for _, leg in ipairs(morph.legs) do
 		local st = self.LimbState[leg]
 		if st and st.stepping then airborne = airborne + 1 end
@@ -371,9 +379,10 @@ function ENT:UpdateLimbs()
 				st.stepping = false
 				st.foot = target
 				airborne = airborne - 1
-				if grounded then
+				if grounded and now >= (self.NextFootSound or 0) then
+					self.NextFootSound = now + FOOT_SOUND_GAP
 					local snd = FOOT_SOUNDS[math.random(#FOOT_SOUNDS)]
-					sound.Play(snd, target, 65, limb.pitch + math.random(-10, 10), 0.35)
+					sound.Play(snd, target, 65 + 12 * loud, limb.pitch + math.random(-10, 10) + 15 * loud, 0.35 + 0.4 * loud)
 				end
 			end
 		elseif st.raise > 0 then
@@ -392,7 +401,7 @@ function ENT:UpdateLimbs()
 		local foot = st.foot
 		if st.stepping then
 			local t = st.t
-			foot = LerpVector(Smooth(t), st.from, target) + up * (math.sin(t * math.pi) * limb.stepHeight)
+			foot = LerpVector(Smooth(t), st.from, target) + up * (math.sin(t * math.pi) * limb.stepHeight * low)
 		end
 		if st.raise > 0 and self.LastFeel then
 			local aim = root + (self.LastFeel - root):GetNormalized() * (limb.length * 0.75) + up * (limb.length * 0.25)

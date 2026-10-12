@@ -9,16 +9,22 @@
 -- Hurt, it drops whatever it's holding and runs for somewhere out of the way
 -- to lie low. It comes back out angrier: quicker, hungrier sooner, and
 -- following whoever hurt it.
--- Each thought sets self.Goal (a point to crawl toward) and self.Pace (a
--- share of top speed); Crawl does the moving.
+-- It moves in fits, like something small and quick: dead still, then a dart
+-- faster than anyone can run, then still again. Each thought sets self.Goal
+-- (a point to crawl toward) and self.Pace (a share of dart speed); Crawl
+-- does the moving.
 
 local Scent = EvilCrawler.Scent
 
+local cv_burst = CreateConVar("evil_crawler_burst", "1100", FCVAR_ARCHIVE, "Top speed of a dart")
 local cv_puppet = CreateConVar("evil_crawler_puppet", "0", 0, "Crawlers follow their spawner's crosshair instead of thinking")
 local cv_debug = CreateConVar("evil_crawler_debug_scent", "0", 0, "Draw scent trails (needs developer 1)")
 local ai_ignoreplayers = GetConVar("ai_ignoreplayers")
 
 local THINK_INTERVAL = 0.25
+local QUICK_INTERVAL = 0.1 -- while darting, or it overshoots everything
+local SNAP = 22 -- how hard it starts and stops
+local EASE = 6 -- and how gently, hauling a body
 local SNIFF_RADIUS = 400
 local SCENT_THRESHOLD = 0.12 -- faintest scent worth following
 local TOUCH_RANGE = 220
@@ -42,7 +48,20 @@ local PAIN_SOUNDS = { "npc/barnacle/barnacle_die1.wav", "npc/barnacle/barnacle_d
 local PAIN_HIT_SOUND = "physics/flesh/flesh_squishy_impact_hard2.wav"
 local SHOT_RADIUS = 0.9 -- body heights round the tangle that a bullet counts as hitting the legs
 
-local PACE = { roam = 0.45, search = 0.6, track = 0.85, hunt = 1.25, strike = 0, drag = 0.7, feed = 0, flee = 1.5, hide = 0 }
+-- How it moves in each state: `pace` is a share of dart speed, held for `go`
+-- seconds at a time with dead stillness for `stop` seconds between. It
+-- freezes for `freeze` seconds the moment it enters a state, then goes.
+local RHYTHM = {
+	roam = { pace = 0.09, go = { 3, 8 }, stop = { 1, 4 } },
+	search = { pace = 0.55, go = { 0.3, 0.8 }, stop = { 0.5, 1.6 } },
+	track = { pace = 0.7, go = { 0.4, 1.1 }, stop = { 0.3, 1.2 } },
+	hunt = { pace = 1, go = { 0.6, 1.5 }, stop = { 0.08, 0.3 }, freeze = { 0.3, 0.7 } },
+	strike = { pace = 0 },
+	drag = { pace = 0.14 },
+	feed = { pace = 0 },
+	flee = { pace = 1.2 },
+	hide = { pace = 0 },
+}
 local MOOD = { roam = 0, search = 1, track = 1, hunt = 2, strike = 2, drag = 1, feed = 1, flee = 2, hide = 0 }
 local CHASING = { search = true, track = true, hunt = true }
 local STATE_COLOR = {
@@ -133,8 +152,14 @@ function ENT:Around(center, spread)
 end
 
 function ENT:SetState(state)
+	local r = RHYTHM[state]
+	if state ~= self.State then
+		local first = r.freeze or r.go
+		self.Still = r.freeze ~= nil
+		self.FitUntil = first and CurTime() + math.Rand(first[1], first[2]) or 0
+	end
 	self.State = state
-	self.Pace = PACE[state]
+	self.Pace = r.pace
 	self:SetMood(MOOD[state])
 end
 
@@ -152,7 +177,7 @@ function ENT:Ponder()
 	self.Puppeting = cv_puppet:GetBool()
 	if self.Puppeting then
 		self.Goal = self:PuppetGoal()
-		self.Pace = 1
+		self.Pace = 0.4
 		-- steer it into an NPC to test the kill
 		for npc in pairs(Scent.npcs) do
 			if IsValid(npc) and self:CanAttack(npc) then
@@ -199,7 +224,7 @@ function ENT:Ponder()
 		node = self:FollowTrail(node)
 		self.Trail = node
 		self:SetState("track")
-		self.Pace = Lerp(math.min(1, Scent.Intensity(node, now)), 0.6, 1)
+		self.Pace = RHYTHM.track.pace * Lerp(math.min(1, Scent.Intensity(node, now)), 0.6, 1)
 		if node.next or not self:Reached(node.pos) then
 			self.Goal = node.pos
 		elseif not self.Goal or self:Reached(self.Goal) or self.Goal:Distance(node.pos) > 200 then
@@ -234,6 +259,11 @@ function ENT:CheckProgress(now)
 		self.ProgressGoal, self.BestDist, self.ProgressTime = self.Goal, math.huge, now
 	end
 
+	if self.Still then
+		self.ProgressTime = now -- holding still isn't being stuck
+		return
+	end
+
 	local d = self:SurfaceDistance(self.Goal)
 	if d < self.BestDist - 16 or d < REACHED then
 		self.BestDist, self.ProgressTime = d, now
@@ -249,11 +279,25 @@ function ENT:CheckProgress(now)
 	end
 end
 
--- Where to crawl right now: the goal, unless it's detouring.
+-- Starts and stops the fits: a dart, then still, then another.
+function ENT:Fits(now)
+	local r = RHYTHM[self.State]
+	if self.Puppeting or not (r and r.go) then
+		self.Still = false
+		return
+	end
+	if now < self.FitUntil then return end
+	self.Still = not self.Still
+	local span = self.Still and r.stop or r.go
+	self.FitUntil = now + math.Rand(span[1], span[2])
+end
+
+-- Where to crawl right now, how fast, and how sharply to get going: the
+-- goal, unless it's detouring or holding still.
 function ENT:Steer()
 	local now = CurTime()
 	if now >= (self.NextThought or 0) then
-		self.NextThought = now + THINK_INTERVAL
+		self.NextThought = now + ((self.Pace or 0) > 0.3 and QUICK_INTERVAL or THINK_INTERVAL)
 		self:Ponder()
 		self:CheckProgress(now)
 		if cv_debug:GetBool() and self.Goal then
@@ -263,12 +307,16 @@ function ENT:Steer()
 		end
 	end
 
+	local burst = cv_burst:GetFloat()
+	local accel = self.State == "drag" and EASE or SNAP
 	if self.DetourUntil and now < self.DetourUntil then
-		return self:GetPos() + self.Detour, self.Pace
+		return self:GetPos() + self.Detour, (self.Pace or 0) * burst, accel
 	end
+	self:Fits(now)
+	if self.Still then return nil, 0, accel end
 	local pace = self.Pace or 0
 	if CHASING[self.State] then pace = pace * (1 + ANGER_PACE * (self.Anger or 0)) end
-	return self.Goal, pace
+	return self.Goal, pace * burst, accel
 end
 
 function ENT:OnTakeDamage(dmg)
@@ -292,7 +340,7 @@ function ENT:Hurt(attacker, from)
 	self.CalmAt = now + ANGER_FADE
 	self:SetPrey(NULL)
 	self:SetState("flee")
-	self.Goal = self:FindLair(IsValid(attacker) and attacker:GetPos() or from)
+	self.Goal = self:FindLair(IsValid(attacker) and attacker:EyePos() or from)
 	self.FleeUntil = now + FLEE_TIME
 	self.Trail = nil
 	self.DetourUntil = nil

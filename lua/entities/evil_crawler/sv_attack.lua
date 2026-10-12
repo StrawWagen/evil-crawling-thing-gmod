@@ -35,6 +35,7 @@ local DRAG_TIME = 15 -- gives up looking for somewhere private after this long a
 local SATED_TIME = 90
 local ANGER_HUNGER = 0.5 -- each step of anger shortens how long a meal lasts it by this share
 local LAIR_TRIES = 12
+local OUT_OF_SIGHT = 1500 -- what a hiding place gains from being somewhere `threat` can't see
 local DISTURB_RANGE = 330
 
 local WINDUP_SOUNDS = { "npc/barnacle/barnacle_tongue_pull1.wav", "npc/barnacle/barnacle_tongue_pull2.wav" }
@@ -163,7 +164,8 @@ local function NearestPlayer(spot)
 end
 
 -- Somewhere private to eat or hide: far from every player (and from
--- `threat`, if given), ideally with a roof overhead and walls close around.
+-- `threat`, if given, and out of its sight), ideally with a roof overhead
+-- and walls close around.
 function ENT:FindLair(threat)
 	local pos = self:GetPos()
 	local best, bestScore = pos, -math.huge
@@ -175,7 +177,10 @@ function ENT:FindLair(threat)
 		local spot = tr.HitPos - dir * 32
 
 		local score = math.min(NearestPlayer(spot), 3000)
-		if threat then score = score + math.min(threat:Distance(spot), 3000) end
+		if threat then
+			score = score + math.min(threat:Distance(spot), 3000)
+			if self:Trace(threat, spot).Hit then score = score + OUT_OF_SIGHT end
+		end
 		if self:Trace(spot, spot + Vector(0, 0, 400)).Hit then score = score + 600 end
 		for _, side in ipairs(SIDES) do
 			if self:Trace(spot, spot + side * 200).Hit then score = score + 150 end
