@@ -1,7 +1,7 @@
 local Scent = EvilCrawler.Scent
 
 local cv_puppet = CreateConVar("evil_crawler_puppet", "0", 0, "Crawlers follow their spawner's crosshair instead of thinking")
-local cv_debug = CreateConVar("evil_crawler_debug_scent", "0", 0, "Draw scent trails (needs developer 1)")
+local cv_debug = GetConVar("evil_crawler_debug_scent")
 local ai_ignoreplayers = GetConVar("ai_ignoreplayers")
 local ai_disabled = GetConVar("ai_disabled")
 
