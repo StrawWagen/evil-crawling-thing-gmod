@@ -26,6 +26,7 @@ local cv_debug = CreateConVar("evil_crawler_debug_scent", "0", 0, "Draw scent tr
 local cv_sight = CreateConVar("evil_crawler_sight_range", "4000", FCVAR_ARCHIVE, "How far crawlers can see")
 local cv_players = CreateConVar("evil_crawler_attack_players", "1", FCVAR_ARCHIVE, "Crawlers go for players too")
 local ai_ignoreplayers = GetConVar("ai_ignoreplayers")
+local ai_disabled = GetConVar("ai_disabled")
 
 -- Left alone, players are nothing to it: not seen, felt, smelt or minded.
 function EvilCrawler.IgnoresPlayers()
@@ -421,9 +422,21 @@ function ENT:Fits(now)
 	self.FitUntil = now + math.Rand(span[1], span[2])
 end
 
+-- With ai_disabled it lets go of whatever it has and holds still where it
+-- clings, thinking nothing, until it's turned back on.
+function ENT:Switched()
+	if not (ai_disabled and ai_disabled:GetBool()) then return false end
+	if self:GetAct() ~= EvilCrawler.ACT_NONE then self:Release() end
+	self:SetPrey(NULL)
+	self:SetMood(0)
+	self.DetourUntil = nil
+	return true
+end
+
 -- Where to crawl right now, how fast, and how sharply to get going: the
 -- goal, unless it's detouring or holding still.
 function ENT:Steer()
+	if self.Off then return nil, 0, SNAP end
 	local now = CurTime()
 	if now >= (self.NextThought or 0) then
 		self.NextThought = now + ((self.Pace or 0) > 0.3 and QUICK_INTERVAL or THINK_INTERVAL)
@@ -463,6 +476,7 @@ function ENT:Hurt(attacker, from)
 		self.NextPain = now + 1.5
 		self:EmitSound(PAIN_SOUNDS[math.random(#PAIN_SOUNDS)], 85, math.random(135, 155))
 	end
+	if self.Off then return end
 	if self:GetAct() ~= EvilCrawler.ACT_NONE then self:Release() end
 	if self.State == "flee" then
 		if IsValid(attacker) and attacker ~= self and not attacker:IsWorld() then self.Grudge = attacker end

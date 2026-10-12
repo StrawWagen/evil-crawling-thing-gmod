@@ -91,6 +91,7 @@ function ENT:Initialize()
 end
 
 function ENT:Think()
+	self.Off = self:Switched()
 	self:Crawl(FrameTime())
 	self:UpdateAct(CurTime())
 	self:NextThink(CurTime())
