@@ -42,7 +42,6 @@ local RIP_FORCE = 350
 local DRAINED = 40 -- rips until the body is as dark as it gets
 local TURN_SPEED = 35 -- degrees a second it turns the body over while eating
 local DRAG_TIME = 15 -- gives up looking for somewhere private after this long and stops where it is
-local SATED_TIME = 90
 local ANGER_HUNGER = 0.5 -- each step of anger shortens how long a meal lasts it by this share
 local LAIR_TRIES = 12
 local LAIR_RANGE = { 700, 2500 } -- far enough that the haul there is a long, fast one
@@ -51,7 +50,6 @@ local DISTURB_RANGE = 330
 local PRESS_GAIN = 0.1 -- how much looser each press works a held player
 local PRESS_GAP = 1 / 16 -- presses closer together than this don't count
 local SLIP = 0.3 -- how much of that the coil takes back a second
-local TIGHTER = 0.5 -- and how much more for each time they've got away lately
 local ESCAPE_MEMORY = 90 -- seconds it remembers someone getting away
 local REEL = 0.45 -- share of the way in a held player has been reeled by the time they go under
 local LIFT = 18 -- how far off their feet they're lifted
@@ -167,7 +165,7 @@ end
 
 function ENT:Sate(now)
 	self.FedAt = now
-	self.SatedUntil = now + SATED_TIME / (1 + ANGER_HUNGER * (self.Anger or 0))
+	self.SatedUntil = now + EvilCrawler.Setting("sated_time") / (1 + ANGER_HUNGER * (self.Anger or 0))
 end
 
 -- The leg lands and coils round them, and they're off their feet.
@@ -225,7 +223,7 @@ end
 -- someone who's already got away lately.
 function ENT:GripOn(ply)
 	local recent = CurTime() - (ply.EvilCrawlerEscapedAt or -math.huge) < ESCAPE_MEMORY
-	return SLIP * (1 + TIGHTER * (recent and ply.EvilCrawlerEscapes or 0))
+	return SLIP * (1 + EvilCrawler.Setting("escape_tighten") * (recent and ply.EvilCrawlerEscapes or 0))
 end
 
 -- Every tick a player is in the coil: reeling them in and up, the teeth

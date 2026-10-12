@@ -58,7 +58,7 @@ local FED_PULL = 0.3 -- and when it isn't
 local FEAR_PULL = 1.5
 local GRUDGE_PULL = 2.5 -- how much more the trail of whoever hurt it draws it
 local FLEE_TIME = 8 -- runs this long at most before hiding wherever it's got to
-local HIDE_TIME = { 20, 40 }
+local HIDE_SPREAD = { 2 / 3, 4 / 3 } -- share of the hide time setting it lies low for
 local ANGER_MAX = 3
 local ANGER_FADE = 180 -- seconds for each step of anger to wear off
 local ANGER_PACE = 0.15 -- each step of anger makes it this much quicker on someone's trail
@@ -562,7 +562,7 @@ function ENT:LyingLow(now)
 	if self.State == "flee" then
 		if self.Goal and not self:Reached(self.Goal) and now < self.FleeUntil then return true end
 		self:SetState("hide")
-		self.HideUntil = now + math.Rand(HIDE_TIME[1], HIDE_TIME[2])
+		self.HideUntil = now + EvilCrawler.Setting("hide_time") * math.Rand(HIDE_SPREAD[1], HIDE_SPREAD[2])
 	end
 	if self.State ~= "hide" then return false end
 	if now < self.HideUntil then
