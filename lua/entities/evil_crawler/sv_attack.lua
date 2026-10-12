@@ -8,7 +8,7 @@
 -- swallowed and the next is drawn in: head, shoulders, chest, hips, legs,
 -- until there's nothing left. It never eats anything still fighting: not
 -- worth it.
--- Players it goes for when it's hungry, or when they've hurt it. A player in
+-- Players it goes for whenever it isn't still busy with its last meal. A player in
 -- the coil gets a few seconds to fight their way out (sh_struggle.lua) while
 -- it reels them in and the teeth go to work. Out, they're flung clear and it
 -- reels, curled up, for a moment, and it remembers them: the next time, the
@@ -44,6 +44,7 @@ local DRAINED = 40 -- rips until the body is as dark as it gets
 local TURN_SPEED = 35 -- degrees a second it turns the body over while eating
 local DRAG_TIME = 15 -- gives up looking for somewhere private after this long and stops where it is
 local SATED_TIME = 90
+local DIGEST_TIME = 10 -- leaves players be this long after a meal, unless they've hurt it
 local ANGER_HUNGER = 0.5 -- each step of anger shortens how long a meal lasts it by this share
 local LAIR_TRIES = 12
 local LAIR_RANGE = { 700, 2500 } -- far enough that the haul there is a long, fast one
@@ -104,9 +105,11 @@ function ENT:IsHungry()
 	return CurTime() >= (self.SatedUntil or 0)
 end
 
--- Players are fair game when it's hungry, or when they've hurt it.
+-- Players are always fair game, fed or not, once it's had a moment to get
+-- its last meal down. Anyone who's hurt it, even sooner.
 function ENT:WouldTake(ply)
-	return cv_players:GetBool() and (self:IsHungry() or ply == self.Grudge)
+	local digesting = CurTime() - (self.FedAt or -math.huge) < DIGEST_TIME
+	return cv_players:GetBool() and (not digesting or ply == self.Grudge)
 		and ply:Alive() and not ply:InVehicle() and not ply.EvilCrawlerVictim
 		and ply:LookupBone("ValveBiped.Bip01_Spine2") ~= nil
 end
@@ -157,6 +160,7 @@ local function Chest(corpse)
 end
 
 function ENT:Sate(now)
+	self.FedAt = now
 	self.SatedUntil = now + SATED_TIME / (1 + ANGER_HUNGER * (self.Anger or 0))
 end
 

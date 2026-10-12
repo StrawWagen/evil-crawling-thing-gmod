@@ -4,8 +4,8 @@
 --   scent   the trails everyone leaves (sv_scent.lua), followed toward
 --           fresher scent
 -- Hungry, it goes for NPCs it can eat (sv_attack.lua) over players, and
--- follows NPC trails over theirs. Fed, it loses interest in NPC trails and
--- only stalks players, unless they've hurt it. Fear draws it either way.
+-- follows NPC trails over theirs. Fed, it loses interest in NPC trails but
+-- not in players. Fear draws it either way.
 -- Hurt, it drops whatever it's holding and runs for somewhere out of the way
 -- to lie low. It comes back out angrier: quicker, hungrier sooner, and
 -- following whoever hurt it.

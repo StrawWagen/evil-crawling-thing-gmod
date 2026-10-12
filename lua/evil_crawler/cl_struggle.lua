@@ -33,6 +33,7 @@ local shownFree = 0
 -- What the local player is made to watch, now they're outside their body:
 -- the crawler that has it, or the body once it's dropped.
 function EvilCrawler.Devoured(ply)
+	if ply:GetObserverMode() == OBS_MODE_NONE then return end -- respawned
 	local target = ply:GetObserverTarget()
 	if not IsValid(target) then return end
 	if target:GetClass() == "evil_crawler" or target:GetNW2Entity(EvilCrawler.OWNER_VAR) == ply then return target end

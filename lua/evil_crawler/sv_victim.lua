@@ -581,5 +581,11 @@ local function Disown(ply)
 end
 hook.Add("PostPlayerDeath", "EvilCrawlerVictims", Disown)
 hook.Add("PlayerSpawn", "EvilCrawlerVictims", function(ply)
-	if not ply.EvilCrawlerGettingUp then Disown(ply) end
+	if ply.EvilCrawlerGettingUp then return end
+	Disown(ply)
+	-- respawned out of a strike or a coil: whatever had them lets go
+	for _, crawler in ipairs(ents.FindByClass("evil_crawler")) do
+		if crawler:GetVictim() == ply then crawler:Release() end
+	end
+	ply.EvilCrawlerVictim = nil
 end)
