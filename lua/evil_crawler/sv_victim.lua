@@ -6,6 +6,10 @@
 -- missing a part, in which case it lies where it's dropped and bleeds out. It
 -- dies once it's been eaten enough, when its head goes, or when someone
 -- shoots the body.
+-- A player who couldn't fight their way out of the coil goes the same way,
+-- already most of the way under: they watch from outside their body, and get
+-- back up in it with what they were carrying if it's ever dropped and they
+-- come round.
 EvilCrawler = EvilCrawler or {}
 local Victim = EvilCrawler.Victim or {}
 EvilCrawler.Victim = Victim
@@ -23,6 +27,7 @@ local CRY_FEAR = { radius = 900, time = 30 } -- NPCs this close to a cry are fri
 local STRIKE_FEAR = { radius = 600, time = 20 } -- and to the grab
 local ESCAPE_FEAR = 90 -- an NPC that got away stays frightened this long
 local BLEED = 0.02 -- share of max health lost a second once a part is gone
+local TAKEN_SEDATION = 0.7 -- how far under a player is by the time they lose the fight
 
 local NIP_SOUNDS = {
 	"physics/flesh/flesh_impact_bullet2.wav",
@@ -205,22 +210,21 @@ local function Hide(npc)
 	npc:ClearSchedule()
 end
 
--- Takes the NPC in hand and returns the ragdoll lying in for it, held by
--- `holder`, or nil if no ragdoll can be had.
-function Victim.Grab(npc, holder)
+-- A ragdoll dressed and posed as `ent`, or nil if none can be had.
+local function Body(ent)
 	local rag = ents.Create("prop_ragdoll")
 	if not IsValid(rag) then return end
-	rag:SetModel(npc:GetModel())
-	rag:SetPos(npc:GetPos())
-	rag:SetAngles(npc:GetAngles())
-	rag:SetSkin(npc:GetSkin())
-	for _, group in ipairs(npc:GetBodyGroups()) do
-		rag:SetBodygroup(group.id, npc:GetBodygroup(group.id))
+	rag:SetModel(ent:GetModel())
+	rag:SetPos(ent:GetPos())
+	rag:SetAngles(ent:GetAngles())
+	rag:SetSkin(ent:GetSkin())
+	for _, group in ipairs(ent:GetBodyGroups()) do
+		rag:SetBodygroup(group.id, ent:GetBodygroup(group.id))
 	end
 	rag:Spawn()
 	rag:Activate()
 
-	local ok, err = pcall(Pose, rag, npc)
+	local ok, err = pcall(Pose, rag, ent)
 	if not ok or rag:GetPhysicsObjectCount() == 0 then
 		if not ok then ErrorNoHalt("[evil_crawler] couldn't pose body: " .. tostring(err) .. "\n") end
 		rag:Remove()
@@ -228,27 +232,64 @@ function Victim.Grab(npc, holder)
 	end
 	rag:SetCollisionGroup(COLLISION_GROUP_WEAPON)
 	rag:SetBloodColor(DONT_BLEED) -- until Victim.Opened
+	return rag
+end
 
-	npc.EvilCrawlerVictim = true
-	npc.EvilCrawlerBody = rag
-	Hide(npc)
-
-	rag.EvilCrawlerNPC = npc
+-- `ent` is in the body now, held by `holder`, `sedation` of the way under.
+local function Hold(rag, ent, holder, sedation)
+	ent.EvilCrawlerBody = rag
+	rag.EvilCrawlerOwner = ent
 	rag.EvilCrawlerHolder = holder
-	rag.EvilCrawlerVoice = VoiceOf(npc, rag)
+	rag.EvilCrawlerVoice = VoiceOf(ent, rag)
 	rag.EvilCrawlerPitch = math.random(94, 106)
-	rag.Sedation = 0
+	rag.Sedation = sedation
 	rag.NextCry = CurTime() + math.Rand(0.8, 1.4)
 	Victim.bodies[rag] = true
 	EvilCrawler.Scent.Frighten(rag:GetPos(), STRIKE_FEAR.radius, STRIKE_FEAR.time)
+end
+
+-- Takes the NPC in hand and returns the ragdoll lying in for it, held by
+-- `holder`, or nil if no ragdoll can be had.
+function Victim.Grab(npc, holder)
+	local rag = Body(npc)
+	if not rag then return end
+
+	npc.EvilCrawlerVictim = true
+	Hide(npc)
+	Hold(rag, npc, holder, 0)
 
 	Say(rag, "wake")
 	Thrash(rag, 1.6, 6)
 	return rag
 end
 
+-- A player who lost the fight in the coil. What they were carrying is put
+-- by, and they watch their body from outside it.
+function Victim.Take(ply, holder)
+	local rag = Body(ply)
+	if not rag then return end
+
+	local active = ply:GetActiveWeapon()
+	local kit = { armor = ply:Armor(), ammo = ply:GetAmmo(), weapons = {}, active = IsValid(active) and active:GetClass() }
+	for _, wep in ipairs(ply:GetWeapons()) do
+		kit.weapons[#kit.weapons + 1] = { class = wep:GetClass(), clip1 = wep:Clip1(), clip2 = wep:Clip2() }
+	end
+	ply.EvilCrawlerKit = kit
+	ply:StripWeapons()
+	ply:Spectate(OBS_MODE_CHASE)
+	ply:SpectateEntity(rag)
+
+	rag:SetNW2Entity(EvilCrawler.OWNER_VAR, ply)
+	rag:SetNW2Vector(EvilCrawler.COLOR_VAR, ply:GetPlayerColor())
+	Hold(rag, ply, holder, TAKEN_SEDATION)
+
+	Say(rag, "pain", 80)
+	Thrash(rag, 0.8, 4)
+	return rag
+end
+
 function Victim.Alive(rag)
-	return IsValid(rag) and IsValid(rag.EvilCrawlerNPC)
+	return IsValid(rag) and IsValid(rag.EvilCrawlerOwner)
 end
 
 -- Still alive and not yet gone under.
@@ -263,15 +304,24 @@ end
 
 -- The body is just a body now.
 function Victim.Kill(rag, attacker)
-	local npc = rag.EvilCrawlerNPC
+	local npc = rag.EvilCrawlerOwner
 	if not IsValid(npc) then return end
 	Victim.bodies[rag] = nil
-	rag.EvilCrawlerNPC = nil
+	rag.EvilCrawlerOwner = nil
 
 	if Lucid(rag) > 0.3 then Say(rag, "die", 75) end
 	Thrash(rag, 1.5, 4)
 
 	npc.EvilCrawlerBody = nil
+	if npc:IsPlayer() then
+		-- dead, and still watching what's left of them
+		npc:KillSilent()
+		npc:AddDeaths(1)
+		hook.Run("PlayerDeath", npc, attacker, attacker)
+		npc:Spectate(OBS_MODE_CHASE)
+		npc:SpectateEntity(rag)
+		return
+	end
 	npc:SetHealth(0)
 	hook.Run("OnNPCKilled", npc, attacker, attacker)
 	npc:Remove()
@@ -279,14 +329,14 @@ end
 
 -- Something hurt the body, or tore a piece off it.
 function Victim.Hurt(rag, amount, attacker)
-	local npc = rag.EvilCrawlerNPC
+	local npc = rag.EvilCrawlerOwner
 	if not IsValid(npc) then return end
 	npc:SetHealth(npc:Health() - amount)
 	if npc:Health() <= 0 then Victim.Kill(rag, attacker) end
 end
 
 function Victim.Wound(rag, attacker)
-	local npc = rag.EvilCrawlerNPC
+	local npc = rag.EvilCrawlerOwner
 	if not IsValid(npc) then return end
 	Victim.Hurt(rag, math.max(1, npc:GetMaxHealth()) * math.Rand(WOUND[1], WOUND[2]), attacker)
 end
@@ -295,7 +345,7 @@ end
 -- screams with every one.
 function Victim.Pierced(rag)
 	Victim.Opened(rag)
-	local npc = rag.EvilCrawlerNPC
+	local npc = rag.EvilCrawlerOwner
 	if not IsValid(npc) then return end
 	local lucid = Lucid(rag)
 	if lucid <= 0 then
@@ -323,23 +373,63 @@ function Victim.Maimed(rag, bone, attacker)
 	rag.Maimed = true
 end
 
--- Somewhere the NPC fits standing up, near the body.
+-- Somewhere the NPC or player fits standing up, near the body.
 local function StandingSpot(npc, rag)
 	local pos = rag:GetPos()
-	local mins, maxs = npc:OBBMins(), npc:OBBMaxs()
+	local mins, maxs, mask = npc:OBBMins(), npc:OBBMaxs(), MASK_NPCSOLID
+	if npc:IsPlayer() then
+		mins, maxs = npc:GetHull()
+		mask = MASK_PLAYERSOLID
+	end
 	for _, offset in ipairs(STANDING_OFFSETS) do
 		local from = pos + offset + Vector(0, 0, 8)
 		local tr = util.TraceHull({
 			start = from, endpos = from - Vector(0, 0, 96),
-			mins = mins, maxs = maxs, mask = MASK_NPCSOLID, filter = { npc, rag },
+			mins = mins, maxs = maxs, mask = mask, filter = { npc, rag },
 		})
 		if not tr.StartSolid then return tr.HitPos end
 	end
 	return pos
 end
 
+-- A player comes round and is back in their body, with everything they had
+-- on them.
+local function PlayerGetUp(rag, ply)
+	Victim.bodies[rag] = nil
+	rag.EvilCrawlerOwner = nil
+	ply.EvilCrawlerBody = nil
+	local spot, health, kit = StandingSpot(ply, rag), ply:Health(), ply.EvilCrawlerKit or {}
+	ply.EvilCrawlerKit = nil
+
+	ply.EvilCrawlerGettingUp = true
+	ply:UnSpectate()
+	ply:Spawn()
+	ply.EvilCrawlerGettingUp = nil
+
+	ply:SetPos(spot)
+	ply:SetHealth(health)
+	ply:SetArmor(kit.armor or 0)
+	ply:StripWeapons()
+	ply:RemoveAllAmmo()
+	for _, w in ipairs(kit.weapons or {}) do
+		local wep = ply:Give(w.class, true)
+		if IsValid(wep) then
+			wep:SetClip1(w.clip1)
+			wep:SetClip2(w.clip2)
+		end
+	end
+	for id, count in pairs(kit.ammo or {}) do ply:SetAmmo(count, id) end
+	if kit.active then ply:SelectWeapon(kit.active) end
+	ply.EvilCrawlerFearUntil = CurTime() + ESCAPE_FEAR
+	rag:Remove()
+end
+
 -- It gets up, worse for wear, and runs.
 local function GetUp(rag, npc)
+	if npc:IsPlayer() then
+		PlayerGetUp(rag, npc)
+		return
+	end
 	Victim.bodies[rag] = nil
 	npc:SetPos(StandingSpot(npc, rag))
 	npc:SetAngles(Angle(0, math.Rand(0, 360), 0))
@@ -353,13 +443,13 @@ local function GetUp(rag, npc)
 	npc.EvilCrawlerVictim = nil
 	npc.EvilCrawlerBody = nil
 	npc.EvilCrawlerFearUntil = CurTime() + ESCAPE_FEAR
-	rag.EvilCrawlerNPC = nil
+	rag.EvilCrawlerOwner = nil
 	rag:Remove()
 	npc:SetSchedule(SCHED_RUN_RANDOM)
 end
 
 local function Update(rag, now)
-	local npc = rag.EvilCrawlerNPC
+	local npc = rag.EvilCrawlerOwner
 	if not IsValid(npc) then
 		Victim.bodies[rag] = nil
 		return
@@ -453,9 +543,30 @@ hook.Add("EntityTakeDamage", "EvilCrawlerVictims", function(ent, dmg)
 	end
 end)
 
--- Cleaning up the body takes the NPC with it.
+-- Cleaning up the body takes the NPC with it, or kills the player in it.
 hook.Add("EntityRemoved", "EvilCrawlerVictims", function(ent)
-	local npc = ent.EvilCrawlerNPC
+	local owner = ent.EvilCrawlerOwner
 	Victim.bodies[ent] = nil
-	if IsValid(npc) then npc:Remove() end
+	if not IsValid(owner) then return end
+	owner.EvilCrawlerBody = nil
+	if not owner:IsPlayer() then
+		owner:Remove()
+	elseif owner:Alive() then
+		owner:KillSilent()
+	end
+end)
+
+-- A player in a body who dies or respawns some other way leaves it behind as
+-- just a body.
+local function Disown(ply)
+	local rag = ply.EvilCrawlerBody
+	ply.EvilCrawlerBody = nil
+	if IsValid(rag) then
+		rag.EvilCrawlerOwner = nil
+		Victim.bodies[rag] = nil
+	end
+end
+hook.Add("PostPlayerDeath", "EvilCrawlerVictims", Disown)
+hook.Add("PlayerSpawn", "EvilCrawlerVictims", function(ply)
+	if not ply.EvilCrawlerGettingUp then Disown(ply) end
 end)

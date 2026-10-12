@@ -2,8 +2,8 @@
 -- fading over time. Crawlers don't know where players are; they smell where
 -- players have been and follow the chain toward fresher scent. One shared
 -- scent map serves every crawler on the server.
--- Frightened NPCs sweat fear into their trail: heavier, and it draws crawlers
--- in whether they're hungry or not.
+-- Frightened NPCs, and players who got out of a crawler's coil, sweat fear
+-- into their trail: it draws crawlers in whether they're hungry or not.
 EvilCrawler = EvilCrawler or {}
 local Scent = EvilCrawler.Scent or {}
 EvilCrawler.Scent = Scent
@@ -60,7 +60,7 @@ function Scent.Intensity(node, now)
 end
 
 local function Afraid(ent, now)
-	return ent:IsNPC() and now < (ent.EvilCrawlerFearUntil or 0)
+	return now < (ent.EvilCrawlerFearUntil or 0)
 end
 
 -- Frightens every NPC within radius of pos for `duration` seconds.
