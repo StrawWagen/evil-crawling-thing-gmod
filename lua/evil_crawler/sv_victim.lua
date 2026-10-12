@@ -165,16 +165,19 @@ local function Thrash(rag, strength, kicks)
 	end
 end
 
--- A few small teeth through the clothes.
+-- A few small teeth through the clothes. Too fine to draw blood.
 local function Nip(rag)
 	local phys = PhysOf(rag, LIMBS[math.random(#LIMBS)])
 	if not phys then return end
-	local p = phys:GetPos()
-	local fx = EffectData()
-	fx:SetOrigin(p)
-	fx:SetNormal(VectorRand())
-	util.Effect("BloodImpact", fx)
-	sound.Play(NIP_SOUNDS[math.random(#NIP_SOUNDS)], p, 55, math.random(130, 160), 0.4)
+	sound.Play(NIP_SOUNDS[math.random(#NIP_SOUNDS)], phys:GetPos(), 55, math.random(130, 160), 0.4)
+end
+
+-- The body doesn't bleed (onto the floor it's dragged across, say) until
+-- the first stab opens it up.
+function Victim.Opened(rag)
+	if rag.EvilCrawlerOpened then return end
+	rag.EvilCrawlerOpened = true
+	rag:SetBloodColor(BLOOD_COLOR_RED)
 end
 
 -- Moves a ragdoll's bones into the NPC's current pose, so the grab flows
@@ -224,6 +227,7 @@ function Victim.Grab(npc, holder)
 		return
 	end
 	rag:SetCollisionGroup(COLLISION_GROUP_WEAPON)
+	rag:SetBloodColor(DONT_BLEED) -- until Victim.Opened
 
 	npc.EvilCrawlerVictim = true
 	npc.EvilCrawlerBody = rag
@@ -290,6 +294,7 @@ end
 -- A leg drives into them. Under, they barely stir; anyone still lucid
 -- screams with every one.
 function Victim.Pierced(rag)
+	Victim.Opened(rag)
 	local npc = rag.EvilCrawlerNPC
 	if not IsValid(npc) then return end
 	local lucid = Lucid(rag)
