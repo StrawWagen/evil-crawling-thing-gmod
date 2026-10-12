@@ -1,19 +1,3 @@
-"""Renders the crawler in gm_construct for its spawn menu icons and the
-workshop page.
-
-The creature is drawn procedurally in Lua, so this ports what the renders
-need: its growth from a seed (sh_morph.lua, same generator, so a seed grows
-the same creature as in game), the standing pose and FABRIK legs
-(cl_init.lua), and the tapering, knuckled limbs (cl_flesh.lua). The map is
-gm_construct converted by the Blender toolkit's source/bsp_to_obj.py, lit by
-its own lights and sun; each shot puts the crawler on whatever surface a ray
-from `at` along `toward` meets.
-
-    blender -b --factory-startup -P tools/render_assets.py -- --map <converted map dir> --out <dir> [--shots a,b] [--samples n] [--seed n]
-
-Writes <shot>.png per shot at its full render size. tools/finish_assets.py
-turns those into the icon and workshop files.
-"""
 import json
 import math
 import os
@@ -22,39 +6,29 @@ import sys
 import bpy
 from mathutils import Quaternion, Vector
 
-# ---------------------------------------------------------------- settings
-
-SCALE = 0.02  # metres per game unit
-SIDES = 20  # around each limb
-SUB = 10  # curve samples per joint
+SCALE = 0.02
+SIDES = 20
+SUB = 10
 SEED = 777
-REAR_ARC = 45  # legs pointing within this many degrees of the camera reach for it, in shots that ask
-SUN = 4  # sun strength for a light_environment at full brightness
-LAMP = 0.6  # watts per unit of a map light's brightness
+REAR_ARC = 45
+SUN = 4
+LAMP = 0.6
 SKY = 1.0
-SKY_COLOR = tuple((c / 255) ** 2.2 for c in (142, 164, 178)) + (1,)  # gm_construct's sky fog
+SKY_COLOR = tuple((c / 255) ** 2.2 for c in (142, 164, 178)) + (1,)
 
 FLESH = (44, 34, 40)
 BONE = (170, 160, 145)
 
-# Each shot: the surface it clings to, where the camera sits (in body
-# heights, in the body's frame: x forward, y left, z up off the surface),
-# where it looks (same frame), lens, size, and its lights.
 SHOTS = {
-    # the white dev room
     "icon": dict(at=(-2000, -3300, -200), toward=(0, 0, -1), yaw=200, size=(512, 512), cam=(-3.2, -3.0, 4.4),
                  look=(0, 0, -0.3), lens=50, exposure=1.6),
-    # up in a corner of the brick hall's ceiling
     "icon_loose": dict(at=(-2720, -1170, 100), toward=(0, 0, 1), yaw=0, size=(512, 512), cam=(4.0, 3.0, 4.2),
                        look=(0, 0, -0.2), lens=40, exposure=2.2,
                        fill=[("AREA", (3, 3, 3.5), 60, (0.6, 0.72, 1.0), 2.0)]),
-    # on the brick hall's floor, under the skylight
     "thumbnail": dict(at=(-2250, -1400, 0), toward=(0, 0, -1), yaw=0, size=(1024, 1024), cam=(-4.4, -3.2, 2.3),
                       look=(0.2, 0, -0.45), lens=40, exposure=0.4),
     "preview_floor": dict(at=(-2000, -3300, -200), toward=(0, 0, -1), yaw=30, size=(1920, 1080), cam=(-6.0, -4.0, 2.8),
                           look=(0.4, 0, -0.4), lens=35, exposure=1.6),
-    # backed into the brick hall's north-west corner, low, as it comes out of
-    # the sunbeams: a widescreen plate for a video thumbnail
     "clickbait": dict(at=(-2420, -1300, 0), toward=(0, 0, -1), cam_world=(-2815, -1095, -112), size=(2560, 1440),
                       look=(0, 0, 0.1), lens=60, roll=-7, fstop=2.8, rear=True, lead=0.6, exposure=0.6,
                       flashlight=(3000, 40)),
@@ -63,11 +37,8 @@ SHOTS = {
                             fill=[("AREA", (2, 4, 3.5), 40, (0.6, 0.72, 1.0), 2.0)]),
 }
 
-# ------------------------------------------------------------ the creature
-
 
 def rng(seed):
-    """Park-Miller, exactly as sh_morph.lua's Rng."""
     s = seed % 2147483646 + 1
 
     def rand(a=None, b=None):
@@ -80,7 +51,6 @@ def rng(seed):
 
 
 def grow(seed):
-    """EvilCrawler.Grow, field for field and draw for draw."""
     rand = rng(seed)
     integer = lambda a, b: math.floor(rand(a, b + 1))
 
@@ -139,9 +109,6 @@ def solve_chain(points, lengths, root, target, iterations):
 
 
 def pose(creature, up, fwd, t, feel=None, origin=Vector(), lead=Vector(), agitation=0.6):
-    """Every leg's joint chain, standing h off the surface through the origin
-    whose normal is `up`. Legs facing `feel` rear up at it, as cl_init does
-    for a player in front of it."""
     h = creature["height"]
     left = up.cross(fwd)
     shake = 0.04 + 0.04 * agitation
@@ -160,12 +127,10 @@ def pose(creature, up, fwd, t, feel=None, origin=Vector(), lead=Vector(), agitat
         root = pos + world(leg["root"])
         yaw = math.radians(leg["angle"])
         rest = pos + (fwd * math.cos(yaw) + left * math.sin(yaw)) * (leg["length"] * leg["spread"]) + lead
-        foot = rest - up * (rest - origin).dot(up)  # on the surface
+        foot = rest - up * (rest - origin).dot(up)
         bow_k = 0.35
         off = (leg["angle"] - threat + 180) % 360 - 180 if threat is not None else 180
         if abs(off) < REAR_ARC:
-            # reaching for whoever's in front: fanned out round them and
-            # stretched nearly straight, so the slack doesn't bow up
             to = (feel - root).normalized()
             to = Quaternion(up, math.radians(off * 1.2)) @ to
             to = (to + up * (0.12 + 0.2 * math.sin(leg["phase"]))).normalized()
@@ -206,8 +171,6 @@ def linear(c):
 
 
 def tube(chain, leg):
-    """A smooth tube through the chain, rings carried along by a parallel
-    transported frame, capped at both ends. Returns verts, faces, colours."""
     n = len(chain)
     samples = []
     for i in range(n - 1):
@@ -241,7 +204,6 @@ def tube(chain, leg):
         for k in range(SIDES):
             k2 = (k + 1) % SIDES
             faces.append((j * SIDES + k, j * SIDES + k2, (j + 1) * SIDES + k2, (j + 1) * SIDES + k))
-    # caps: a point just past each end
     for end, ring, sign in ((0, 0, -1), (count - 1, (count - 1) * SIDES, 1)):
         p = samples[end][0]
         q = samples[end - sign][0] if 0 <= end - sign < count else p
@@ -253,9 +215,6 @@ def tube(chain, leg):
             k2 = (k + 1) % SIDES
             faces.append((ring + k2, ring + k, c) if sign < 0 else (ring + k, ring + k2, c))
     return verts, faces, cols
-
-
-# --------------------------------------------------------------- the scene
 
 
 def material_flesh():
@@ -314,8 +273,6 @@ def light(kind, at, look, energy, color=(1, 1, 1), size=0.5, spot=None):
 
 
 def stage(map_dir):
-    """gm_construct (or any map bsp_to_obj.py has converted), lit by its own
-    lights and sun."""
     with open(os.path.join(map_dir, "scene.json")) as f:
         info = json.load(f)
     bpy.ops.wm.obj_import(filepath=os.path.join(map_dir, "map.obj"), forward_axis="Y", up_axis="Z")
@@ -358,7 +315,6 @@ def stage(map_dir):
 
 
 def fix_material(m, info):
-    """The OBJ importer's material, made to behave like the Source one."""
     if not m or not m.use_nodes:
         return
     nt = m.node_tree
@@ -380,8 +336,6 @@ def fix_material(m, info):
 
 
 def surface_at(point, toward):
-    """Where a ray from `point` (game units) along `toward` meets the map,
-    and the normal there."""
     deps = bpy.context.evaluated_depsgraph_get()
     hit, loc, normal, *_ = bpy.context.scene.ray_cast(deps, Vector(point) * SCALE, Vector(toward).normalized())
     if not hit:
@@ -399,7 +353,7 @@ def build(shot, seed, t, map_dir):
     origin, up = surface_at(shot["at"], shot["toward"])
     yaw = math.radians(shot.get("yaw", 0))
     fwd = Vector((math.cos(yaw), math.sin(yaw), 0))
-    if "cam_world" in shot:  # facing a camera placed in the map
+    if "cam_world" in shot:
         fwd = Vector(shot["cam_world"]) - origin
     fwd = (fwd - up * fwd.dot(up))
     if fwd.length < 1e-3:
@@ -409,8 +363,8 @@ def build(shot, seed, t, map_dir):
     frame = lambda v: origin + fwd * (v[0] * h) + left * (v[1] * h) + up * (v[2] * h)
 
     cam_pos = Vector(shot["cam_world"]) if "cam_world" in shot else frame(shot["cam"])
-    feel = cam_pos if shot.get("rear") else None  # the legs nearest the camera rear up at it
-    lead = fwd * (shot.get("lead", 0) * h)  # feet reaching ahead, as when it's coming on fast
+    feel = cam_pos if shot.get("rear") else None
+    lead = fwd * (shot.get("lead", 0) * h)
     flesh = material_flesh()
     for i, (leg, chain) in enumerate(pose(creature, up, fwd, t, feel, origin, lead)):
         v, f, c = tube(chain, leg)
@@ -419,7 +373,7 @@ def build(shot, seed, t, map_dir):
     for kind, at, energy, color, size in shot.get("fill", ()):
         light(kind, frame(at), origin + up * h, energy, color, size=size)
 
-    if "flashlight" in shot:  # held by whoever's backed into the corner
+    if "flashlight" in shot:
         energy, cone = shot["flashlight"]
         body = origin + up * h
         light("SPOT", cam_pos + (body - cam_pos).normalized() * 12, body, energy, (1.0, 0.93, 0.8), size=0.05, spot=cone)

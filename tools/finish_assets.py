@@ -1,9 +1,3 @@
-"""Turns tools/render_assets.py's renders into the shipped files:
-spawn menu icons (128x128 PNG, what the spawn menu draws them at) and the
-workshop thumbnail (512x512 JPG, what gmpublish wants) and preview images.
-
-    python tools/finish_assets.py <render dir>
-"""
 import os
 import sys
 
