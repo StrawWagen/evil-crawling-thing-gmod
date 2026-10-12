@@ -21,7 +21,6 @@ local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
 local ACT_GRAPPLE, ACT_STUN = EvilCrawler.ACT_GRAPPLE, EvilCrawler.ACT_STUN
 local HELD_VAR, FREE_VAR = EvilCrawler.HELD_VAR, EvilCrawler.FREE_VAR
 
-local cv_players = CreateConVar("evil_crawler_attack_players", "1", FCVAR_ARCHIVE, "Crawlers go for players too")
 local IMPACT_TIME = EvilCrawler.STRIKE_WINDUP + EvilCrawler.STRIKE_LUNGE
 
 local ATTACK_REACH = 140
@@ -109,7 +108,7 @@ end
 -- its last meal down. Anyone who's hurt it, even sooner.
 function ENT:WouldTake(ply)
 	local digesting = CurTime() - (self.FedAt or -math.huge) < DIGEST_TIME
-	return cv_players:GetBool() and (not digesting or ply == self.Grudge)
+	return not EvilCrawler.IgnoresPlayers() and (not digesting or ply == self.Grudge)
 		and ply:Alive() and not ply:InVehicle() and not ply.EvilCrawlerVictim
 		and ply:LookupBone("ValveBiped.Bip01_Spine2") ~= nil
 end
@@ -334,6 +333,7 @@ end
 
 local function NearestPlayer(spot)
 	local nearest = math.huge
+	if EvilCrawler.IgnoresPlayers() then return nearest end
 	for _, ply in ipairs(player.GetAll()) do
 		if ply:Alive() and ply:GetObserverMode() == OBS_MODE_NONE then nearest = math.min(nearest, ply:GetPos():Distance(spot)) end
 	end
@@ -368,6 +368,7 @@ function ENT:FindLair(threat)
 end
 
 function ENT:Disturbed()
+	if EvilCrawler.IgnoresPlayers() then return false end
 	local pos = self:GetPos()
 	for _, ply in ipairs(player.GetAll()) do
 		if ply:Alive() and ply:GetObserverMode() == OBS_MODE_NONE

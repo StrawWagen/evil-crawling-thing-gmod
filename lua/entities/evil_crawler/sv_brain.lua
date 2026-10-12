@@ -24,7 +24,13 @@ local cv_burst = CreateConVar("evil_crawler_burst", "1100", FCVAR_ARCHIVE, "Top 
 local cv_puppet = CreateConVar("evil_crawler_puppet", "0", 0, "Crawlers follow their spawner's crosshair instead of thinking")
 local cv_debug = CreateConVar("evil_crawler_debug_scent", "0", 0, "Draw scent trails (needs developer 1)")
 local cv_sight = CreateConVar("evil_crawler_sight_range", "4000", FCVAR_ARCHIVE, "How far crawlers can see")
+local cv_players = CreateConVar("evil_crawler_attack_players", "1", FCVAR_ARCHIVE, "Crawlers go for players too")
 local ai_ignoreplayers = GetConVar("ai_ignoreplayers")
+
+-- Left alone, players are nothing to it: not seen, felt, smelt or minded.
+function EvilCrawler.IgnoresPlayers()
+	return not cv_players:GetBool() or (ai_ignoreplayers and ai_ignoreplayers:GetBool())
+end
 
 local THINK_INTERVAL = 0.25
 local QUICK_INTERVAL = 0.1 -- while darting, or it overshoots everything
@@ -96,7 +102,7 @@ local function Perceivable(ent)
 		and not ent.EvilCrawlerVictim
 		and ent:GetMoveType() ~= MOVETYPE_NOCLIP
 		and ent:GetObserverMode() == OBS_MODE_NONE
-		and not (ai_ignoreplayers and ai_ignoreplayers:GetBool())
+		and not EvilCrawler.IgnoresPlayers()
 end
 
 -- Distance to a point measured along the surface the body is on, so a
@@ -229,6 +235,7 @@ end
 
 -- How strongly a bit of scent draws it.
 function ENT:Appeal(node, now)
+	if not node.npc and EvilCrawler.IgnoresPlayers() then return 0 end
 	local w = 1
 	if node.npc then w = self:IsHungry() and HUNGRY_PULL or FED_PULL end
 	if node.fear then w = math.max(w, 1) * FEAR_PULL end
