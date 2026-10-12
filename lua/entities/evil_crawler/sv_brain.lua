@@ -188,7 +188,8 @@ end
 function ENT:Glimpse()
 	local best, bestSure
 	for ent in pairs(self.InView) do
-		local sure = self.Awareness[ent]
+		-- someone barely visible can be in view with no awareness of them left
+		local sure = self.Awareness[ent] or 0
 		if sure >= NOTICE and not self.Spotted[ent] and (not best or sure > bestSure) then best, bestSure = ent, sure end
 	end
 	return best
