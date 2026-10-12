@@ -85,9 +85,9 @@ local function Somewhere(from, height)
 	return best, bestUp
 end
 
-function ENT:SpawnFunction(ply, tr, class)
+local function LetLoose(ply, from)
 	local ent = ents.Create("evil_crawler")
-	local pos, up = Somewhere(ply:EyePos(), ent.BodyHeight)
+	local pos, up = Somewhere(from, ent.BodyHeight)
 	if not pos then
 		ent:Remove()
 		return
@@ -99,4 +99,15 @@ function ENT:SpawnFunction(ply, tr, class)
 	ent:Spawn()
 	ent:Activate()
 	return ent
+end
+
+function ENT:SpawnFunction(ply, tr, class)
+	return LetLoose(ply, ply:EyePos())
+end
+
+-- Made some other way than the spawn menu (ent_create, say): it lets one
+-- loose from wherever it was made, and goes.
+function ENT:Initialize()
+	LetLoose(nil, self:GetPos())
+	SafeRemoveEntityDelayed(self, 0)
 end
