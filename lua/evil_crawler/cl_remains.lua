@@ -170,7 +170,7 @@ local function DrawStump(rag, stump, size, shape)
 end
 
 hook.Add("PostDrawOpaqueRenderables", "EvilCrawlerRemains", function(depth, sky)
-	if sky or not next(remains) then return end
+	if depth or sky or not next(remains) then return end
 	local eye = EyePos()
 	render.SetMaterial(Flesh.Material)
 	for rag, r in pairs(remains) do
