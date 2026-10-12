@@ -94,12 +94,16 @@ local function Strength(ply, now)
 	return s
 end
 
+local ai_ignoreplayers = GetConVar("ai_ignoreplayers")
+
 local function LeavesScent(ent)
+	if ent:IsFlagSet(FL_NOTARGET) then return false end
 	if ent:IsNPC() then
 		return ent:Health() > 0 and not ent.EvilCrawlerVictim and ent:GetMoveType() == MOVETYPE_STEP
 	end
 	local ply = ent
 	return ply:Alive()
+		and not (ai_ignoreplayers and ai_ignoreplayers:GetBool())
 		and not ply:InVehicle()
 		and ply:GetMoveType() ~= MOVETYPE_NOCLIP
 		and ply:GetObserverMode() == OBS_MODE_NONE
