@@ -7,11 +7,21 @@
 -- legs stab into the mouthful going in and tear it apart, until it's
 -- swallowed and the next is drawn in: head, shoulders, chest, hips, legs,
 -- until there's nothing left. It never eats anything still fighting: not
--- worth it. Players are never attacked.
+-- worth it.
+-- Players it goes for when it's hungry, or when they've hurt it. A player in
+-- the coil gets a few seconds to fight their way out (sh_struggle.lua) while
+-- it reels them in and the teeth go to work. Out, they're flung clear and it
+-- reels, curled up, for a moment, and it remembers them: the next time, the
+-- coil's tighter. Still in it when time's up, they've gone under, and it's
+-- off with them like any other body.
 
 local Victim = EvilCrawler.Victim
 local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
 	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
+local ACT_GRAPPLE, ACT_STUN = EvilCrawler.ACT_GRAPPLE, EvilCrawler.ACT_STUN
+local HELD_VAR, FREE_VAR = EvilCrawler.HELD_VAR, EvilCrawler.FREE_VAR
+
+local cv_players = CreateConVar("evil_crawler_attack_players", "1", FCVAR_ARCHIVE, "Crawlers go for players too")
 local IMPACT_TIME = EvilCrawler.STRIKE_WINDUP + EvilCrawler.STRIKE_LUNGE
 
 local ATTACK_REACH = 140
@@ -39,6 +49,18 @@ local LAIR_TRIES = 12
 local LAIR_RANGE = { 700, 2500 } -- far enough that the haul there is a long, fast one
 local OUT_OF_SIGHT = 1500 -- what a hiding place gains from being somewhere `threat` can't see
 local DISTURB_RANGE = 330
+local PRESS_GAIN = 0.1 -- how much looser each press works a held player
+local PRESS_GAP = 1 / 16 -- presses closer together than this don't count
+local SLIP = 0.3 -- how much of that the coil takes back a second
+local TIGHTER = 0.5 -- and how much more for each time they've got away lately
+local ESCAPE_MEMORY = 90 -- seconds it remembers someone getting away
+local REEL = 0.45 -- share of the way in a held player has been reeled by the time they go under
+local LIFT = 18 -- how far off their feet they're lifted
+local NIP_TIME = { 0.45, 0.9 }
+local NIP_DAMAGE = 2
+local THROWN = { 420, 220 } -- how hard someone who fights free is flung clear: away, and up
+local STUN_KNOCK = 300
+local SPOOKED = 60 -- someone who got away sweats fear this long
 
 local WINDUP_SOUNDS = { "npc/barnacle/barnacle_tongue_pull1.wav", "npc/barnacle/barnacle_tongue_pull2.wav" }
 local LUNGE_SOUND = "npc/zombie/claw_miss1.wav"
@@ -65,6 +87,9 @@ local CONSUME_SOUNDS = {
 	"physics/body/body_medium_break4.wav",
 }
 local GULP_SOUNDS = { "npc/barnacle/barnacle_gulp1.wav", "npc/barnacle/barnacle_gulp2.wav" }
+local NIP_SOUNDS = { "physics/flesh/flesh_impact_bullet2.wav", "physics/flesh/flesh_impact_bullet4.wav" }
+local STUN_SOUNDS = { "npc/barnacle/barnacle_die1.wav", "npc/barnacle/barnacle_die2.wav" }
+local STUN_CRACK = "physics/flesh/flesh_squishy_impact_hard2.wav"
 local SIDES = { Vector(1, 0, 0), Vector(-1, 0, 0), Vector(0, 1, 0), Vector(0, -1, 0) }
 
 -- Walking NPCs roughly human sized: big enough to wrap, small enough to hold.
@@ -79,9 +104,17 @@ function ENT:IsHungry()
 	return CurTime() >= (self.SatedUntil or 0)
 end
 
+-- Players are fair game when it's hungry, or when they've hurt it.
+function ENT:WouldTake(ply)
+	return cv_players:GetBool() and (self:IsHungry() or ply == self.Grudge)
+		and ply:Alive() and not ply:InVehicle() and not ply.EvilCrawlerVictim
+		and ply:LookupBone("ValveBiped.Bip01_Spine2") ~= nil
+end
+
 function ENT:CanAttack(ent)
+	if ent:WorldSpaceCenter():Distance(self:GetPos()) >= ATTACK_REACH then return false end
+	if ent:IsPlayer() then return self:WouldTake(ent) end
 	return self:IsHungry() and self:IsEdible(ent)
-		and ent:WorldSpaceCenter():Distance(self:GetPos()) < ATTACK_REACH
 end
 
 function ENT:StartStrike(npc)
@@ -100,9 +133,10 @@ end
 -- again; a body is let go, to get up later if there's anything left of it.
 function ENT:Release()
 	local victim = self:GetVictim()
-	if IsValid(victim) and victim:IsNPC() and victim.EvilCrawlerVictim == self then
+	if IsValid(victim) and (victim:IsNPC() or victim:IsPlayer()) and victim.EvilCrawlerVictim == self then
 		victim.EvilCrawlerVictim = nil
 	end
+	if IsValid(victim) and victim:IsPlayer() then self:LetGo(victim) end
 	self:SetVictim(NULL)
 	self:SetAct(ACT_NONE)
 	self.Lair = nil
@@ -143,6 +177,143 @@ function ENT:Strike(npc)
 
 	self:SetVictim(corpse)
 	self.CarryDir = dir
+	self.Eaten = 0
+	self:StartDrag(now)
+end
+
+-- The leg lands on a player and coils round them, and the fight is on.
+function ENT:Seize(ply, now)
+	if not ply:Alive() or ply:InVehicle() or ply:GetMoveType() == MOVETYPE_NOCLIP then
+		self:Release()
+		return
+	end
+	sound.Play(GRAB_SOUNDS[math.random(#GRAB_SOUNDS)], ply:WorldSpaceCenter(), 75, math.random(80, 95))
+
+	self.SeizedAt = ply:GetPos()
+	self.NextNip = now + math.Rand(NIP_TIME[1], NIP_TIME[2])
+	self.CarryDir = (ply:WorldSpaceCenter() - self:GetPos()):GetNormalized()
+	ply.EvilCrawlerFree = 0
+	ply:SetNW2Float(FREE_VAR, 0)
+	ply:SetNW2Entity(HELD_VAR, self)
+	ply:SetMoveType(MOVETYPE_NONE)
+	ply:ViewPunch(Angle(-12, math.Rand(-8, 8), math.Rand(-10, 10)))
+	EvilCrawler.Scent.Frighten(ply:GetPos(), 600, 20)
+
+	self:SetAct(ACT_GRAPPLE)
+	self:SetActStart(now)
+	self:SetState("grapple")
+end
+
+-- Lets a held player go, back on their own feet.
+function ENT:LetGo(ply)
+	if EvilCrawler.Holder(ply) ~= self then return end
+	ply:SetNW2Entity(HELD_VAR, NULL)
+	ply:SetMoveType(MOVETYPE_WALK)
+end
+
+-- How fast the coil takes back what a held player fights loose: faster for
+-- someone who's already got away lately.
+function ENT:GripOn(ply)
+	local recent = CurTime() - (ply.EvilCrawlerEscapedAt or -math.huge) < ESCAPE_MEMORY
+	return SLIP * (1 + TIGHTER * (recent and ply.EvilCrawlerEscapes or 0))
+end
+
+-- Every tick a player is in the coil: reeling them in and up, the teeth
+-- going in, the coil taking back what they've fought loose. Still in it when
+-- time's up, they've gone under.
+function ENT:Grapple(ply, now)
+	if not ply:Alive() or ply:GetObserverMode() ~= OBS_MODE_NONE then
+		self:Release()
+		return
+	end
+	local span = EvilCrawler.StruggleTime()
+	local t = now - self:GetActStart()
+	if t >= span then
+		self:Overpower(ply, now)
+		return
+	end
+
+	local from = self.SeizedAt
+	local want = from + (self:GetPos() - from) * (REEL * Smooth(t / span)) + vector_up * (LIFT * math.min(1, t * 4))
+	local mins, maxs = ply:GetHull()
+	local tr = util.TraceHull({
+		start = ply:GetPos(), endpos = want, mins = mins, maxs = maxs, mask = MASK_PLAYERSOLID, filter = { ply, self },
+	})
+	if not tr.StartSolid then ply:SetPos(tr.HitPos) end
+
+	ply.EvilCrawlerFree = math.max(0, ply.EvilCrawlerFree - FrameTime() * self:GripOn(ply))
+	ply:SetNW2Float(FREE_VAR, ply.EvilCrawlerFree)
+
+	if now >= self.NextNip then
+		self.NextNip = now + math.Rand(NIP_TIME[1], NIP_TIME[2])
+		ply:TakeDamage(NIP_DAMAGE, self, self)
+		ply:ViewPunch(Angle(math.Rand(2, 5), math.Rand(-3, 3), math.Rand(-4, 4)))
+		sound.Play(NIP_SOUNDS[math.random(#NIP_SOUNDS)], ply:WorldSpaceCenter(), 60, math.random(130, 160), 0.5)
+	end
+end
+
+-- A held player fights it: every press of jump works them a little looser.
+function ENT:Struggled(ply)
+	if self:GetAct() ~= ACT_GRAPPLE or self:GetVictim() ~= ply then return end
+	local now = CurTime()
+	if now < (ply.EvilCrawlerNextPress or 0) then return end
+	ply.EvilCrawlerNextPress = now + PRESS_GAP
+
+	ply.EvilCrawlerFree = ply.EvilCrawlerFree + PRESS_GAIN
+	ply:ViewPunch(Angle(math.Rand(-3, 3), math.Rand(-3, 3), math.Rand(-5, 5)))
+	if ply.EvilCrawlerFree >= 1 then
+		self:BrokeFree(ply, now)
+		return
+	end
+	ply:SetNW2Float(FREE_VAR, ply.EvilCrawlerFree)
+	if math.random() < 0.35 then
+		sound.Play(GRAB_SOUNDS[math.random(#GRAB_SOUNDS)], ply:WorldSpaceCenter(), 60, math.random(100, 120), 0.5)
+	end
+end
+
+-- They fought free: the coil springs open and they're flung clear. It
+-- remembers.
+function ENT:BrokeFree(ply, now)
+	self:Release()
+	ply:SetNW2Float(FREE_VAR, 0)
+	local recent = now - (ply.EvilCrawlerEscapedAt or -math.huge) < ESCAPE_MEMORY
+	ply.EvilCrawlerEscapes = (recent and ply.EvilCrawlerEscapes or 0) + 1
+	ply.EvilCrawlerEscapedAt = now
+	ply.EvilCrawlerFearUntil = now + SPOOKED
+
+	local away = ply:WorldSpaceCenter() - self:GetPos()
+	away.z = 0
+	away = away:LengthSqr() > 1 and away:GetNormalized() or self.Facing
+	ply:SetVelocity(away * THROWN[1] + vector_up * THROWN[2])
+	ply:ViewPunch(Angle(-15, 0, math.Rand(-10, 10)))
+	self:Stun(ply, now)
+end
+
+-- Knocked loose of whatever it was on, legs curled up under it, for a moment.
+function ENT:Stun(by, now)
+	self:SetAct(ACT_STUN)
+	self:SetActStart(now)
+	self:SetState("stunned")
+	self.StunUntil = now + EvilCrawler.STUN_TIME
+	self.LetGoUntil = now + 0.3
+	self.Vel = (self:GetPos() - by:WorldSpaceCenter()):GetNormalized() * STUN_KNOCK
+	self.Goal = nil
+	self:EmitSound(STUN_SOUNDS[math.random(#STUN_SOUNDS)], 90, math.random(160, 185))
+	sound.Play(STUN_CRACK, self:GetPos(), 75, math.random(70, 85))
+	self:Enrage(by, now)
+end
+
+-- Time's up: they've gone under. They're a body now, and it's off with them.
+function ENT:Overpower(ply, now)
+	self:LetGo(ply)
+	ply.EvilCrawlerVictim = nil
+	local rag = Victim.Take(ply, self)
+	if not IsValid(rag) then
+		self:Release()
+		return
+	end
+	sound.Play(GRAB_SOUNDS[math.random(#GRAB_SOUNDS)], rag:GetPos(), 75, math.random(70, 85))
+	self:SetVictim(rag)
 	self.Eaten = 0
 	self:StartDrag(now)
 end
@@ -413,7 +584,18 @@ end
 function ENT:PonderAct(now)
 	local act = self:GetAct()
 	if act == ACT_STRIKE then
+		-- a player won't stand still for the windup: it keeps after them
+		local victim = self:GetVictim()
+		if IsValid(victim) and victim:IsPlayer() then
+			self.Goal, self.Pace = victim:GetPos(), 1
+		else
+			self.Goal = nil
+		end
+	elseif act == ACT_GRAPPLE then
 		self.Goal = nil
+	elseif act == ACT_STUN then
+		self.Goal = nil
+		if now >= self.StunUntil then self:Release() end
 	elseif act == ACT_DRAG then
 		self.Goal = self.Lair
 		local there = self:Reached(self.Lair) or now > self.ActDeadline
@@ -447,7 +629,7 @@ end
 -- Every tick: time the strike, or keep the body in hand.
 function ENT:UpdateAct(now)
 	local act = self:GetAct()
-	if act == ACT_NONE then return end
+	if act == ACT_NONE or act == ACT_STUN then return end
 
 	local victim = self:GetVictim()
 	if not IsValid(victim) then
@@ -466,12 +648,16 @@ function ENT:UpdateAct(now)
 			sound.Play(LUNGE_SOUND, self:GetPos(), 75, math.random(60, 75))
 		end
 		if t >= IMPACT_TIME then
-			if victim:WorldSpaceCenter():Distance(self:GetPos()) < MISS_REACH then
-				self:Strike(victim)
-			else
+			if victim:WorldSpaceCenter():Distance(self:GetPos()) >= MISS_REACH then
 				self:Release()
+			elseif victim:IsPlayer() then
+				self:Seize(victim, now)
+			else
+				self:Strike(victim)
 			end
 		end
+	elseif act == ACT_GRAPPLE then
+		self:Grapple(victim, now)
 	else
 		self:HoldCorpse(victim, self:HoldPoint(now, FrameTime()), 8, 1)
 		if self:GetAct() == ACT_FEED then self:Feed(victim, now) end

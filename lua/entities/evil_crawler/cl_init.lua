@@ -1,6 +1,7 @@
 include("shared.lua")
 include("evil_crawler/cl_flesh.lua")
 include("evil_crawler/cl_remains.lua")
+include("evil_crawler/cl_struggle.lua")
 
 local cv_debug = CreateClientConVar("evil_crawler_debug", "0", false, false, "Draw foot targets")
 
@@ -17,6 +18,8 @@ local LOD_DISTANCE = 1500
 
 local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
 	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
+local ACT_GRAPPLE, ACT_STUN = EvilCrawler.ACT_GRAPPLE, EvilCrawler.ACT_STUN
+local STUN_TIME = EvilCrawler.STUN_TIME
 local WINDUP, LUNGE, WRAP_TIME = EvilCrawler.STRIKE_WINDUP, EvilCrawler.STRIKE_LUNGE, EvilCrawler.WRAP_TIME
 local PULL_TIME = EvilCrawler.PULL_TIME
 local BITE_JAB, BITE_IN, BITE_RIP = EvilCrawler.BITE_JAB, EvilCrawler.BITE_IN, EvilCrawler.BITE_RIP
@@ -25,7 +28,8 @@ local BiteCycle, BiteBone, CurrentPart = EvilCrawler.BiteCycle, EvilCrawler.Bite
 local STAB_DEPTH = 10 -- how far into the body a stab sinks
 local SWALLOW_GAP = { 1.2, 2.2 } -- seconds between swallows down the holding leg
 -- legs put to work per act; the first one holds the body while dragging and feeding
-local ROLE_COUNT = { [ACT_STRIKE] = 1, [ACT_DRAG] = 1, [ACT_FEED] = 1 + EvilCrawler.FEEDERS }
+local ROLE_COUNT = { [ACT_STRIKE] = 1, [ACT_DRAG] = 1, [ACT_FEED] = 1 + EvilCrawler.FEEDERS, [ACT_GRAPPLE] = 1 }
+local CURL = 0.25 -- stunned, legs draw in to this share of where they were
 local COIL_POINTS = 26 -- a coiled leg is drawn through this many points
 local REACH_POINTS = 8 -- of which this many reach from the root to the victim
 
@@ -108,7 +112,13 @@ local function Bone(ent, name)
 	return bone and ent:GetBonePosition(bone)
 end
 
+-- A player's own bones aren't set up while they're in first person, so
+-- players are measured from their feet.
+local PLAYER_CHEST = Vector(0, 0, 46)
+local PLAYER_COIL = { Vector(0, 0, 12), Vector(0, 0, 58), 11 } -- round them from shins to chin, arms and all
+
 local function Chest(ent)
+	if ent:IsPlayer() then return ent:GetPos() + PLAYER_CHEST end
 	return Bone(ent, "ValveBiped.Bip01_Spine2") or ent:WorldSpaceCenter()
 end
 
@@ -131,7 +141,7 @@ function ENT:AssignRoles(morph, act, victim, pos, fwd, left)
 		table.insert(order, 1, self.Striker)
 	end
 
-	local count = math.min(ROLE_COUNT[act], #order - 3)
+	local count = math.min(ROLE_COUNT[act] or 0, #order - 3)
 	for k = 1, count do
 		roles[order[k]] = { index = k, count = count }
 	end
@@ -187,6 +197,10 @@ end
 -- being eaten, round what's left of it from the mouth down, as an axis to
 -- wrap round and a radius.
 local function GripAxis(body)
+	if body:IsPlayer() then
+		local feet = body:GetPos()
+		return feet + PLAYER_COIL[1], feet + PLAYER_COIL[2], PLAYER_COIL[3]
+	end
 	local part = CurrentPart(body)
 	if part and part > 1 then
 		local top = Bone(body, EvilCrawler.PARTS[part].grip[1])
@@ -409,8 +423,18 @@ function ENT:UpdateLimbs()
 			foot = LerpVector(Smooth(st.raise), foot, aim)
 		end
 
+		-- stunned: every leg snatched in tight under it, shuddering, then
+		-- slowly letting go
+		if act == ACT_STUN then
+			local t = now - actStart
+			local k = Smooth(math.Clamp(t / 0.12, 0, 1)) * Smooth(math.Clamp((STUN_TIME - t) / 0.8, 0, 1))
+			local curled = root + (foot - root) * CURL - up * (limb.length * 0.1)
+				+ Wobble(now * 26, limb.phase, limb.freq) * (limb.length * 0.04 * k)
+			foot = LerpVector(k, foot, curled)
+		end
+
 		-- legs put to work: striking, holding the body, or picking at it
-		local holding = role and (act == ACT_DRAG or act == ACT_FEED) and role.index == 1
+		local holding = role and (act == ACT_DRAG or act == ACT_FEED or act == ACT_GRAPPLE) and role.index == 1
 		if role then
 			if act == ACT_STRIKE then
 				-- rear up and back from the victim, trembling, then whip through it

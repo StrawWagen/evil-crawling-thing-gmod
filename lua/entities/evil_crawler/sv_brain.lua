@@ -3,9 +3,9 @@
 --   tremor  players running on the ground with nothing solid in between
 --   scent   the trails everyone leaves (sv_scent.lua), followed toward
 --           fresher scent
--- Hungry, it goes for NPCs it can eat (sv_attack.lua) over players, which it
--- only stalks, and follows NPC trails over theirs. Fed, it loses interest in
--- NPC trails. Fear draws it either way.
+-- Hungry, it goes for NPCs it can eat (sv_attack.lua) over players, and
+-- follows NPC trails over theirs. Fed, it loses interest in NPC trails and
+-- only stalks players, unless they've hurt it. Fear draws it either way.
 -- Hurt, it drops whatever it's holding and runs for somewhere out of the way
 -- to lie low. It comes back out angrier: quicker, hungrier sooner, and
 -- following whoever hurt it.
@@ -61,8 +61,10 @@ local RHYTHM = {
 	feed = { pace = 0 },
 	flee = { pace = 1.2 },
 	hide = { pace = 0 },
+	grapple = { pace = 0 },
+	stunned = { pace = 0 },
 }
-local MOOD = { roam = 0, search = 1, track = 1, hunt = 2, strike = 2, drag = 2, feed = 1, flee = 2, hide = 0 }
+local MOOD = { roam = 0, search = 1, track = 1, hunt = 2, strike = 2, drag = 2, feed = 1, flee = 2, hide = 0, grapple = 2, stunned = 0 }
 local CHASING = { search = true, track = true, hunt = true }
 local STATE_COLOR = {
 	roam = Color(120, 120, 120), search = Color(255, 200, 0), track = Color(255, 120, 0), hunt = Color(255, 0, 0),
@@ -73,6 +75,7 @@ local function Perceivable(ent)
 	if ent:IsFlagSet(FL_NOTARGET) then return false end
 	if ent:IsNPC() then return ent:Health() > 0 and not ent.EvilCrawlerVictim end
 	return ent:Alive()
+		and not ent.EvilCrawlerVictim
 		and ent:GetMoveType() ~= MOVETYPE_NOCLIP
 		and ent:GetObserverMode() == OBS_MODE_NONE
 		and not (ai_ignoreplayers and ai_ignoreplayers:GetBool())
@@ -335,11 +338,12 @@ function ENT:Hurt(attacker, from)
 		self:EmitSound(PAIN_SOUNDS[math.random(#PAIN_SOUNDS)], 85, math.random(135, 155))
 	end
 	if self:GetAct() ~= EvilCrawler.ACT_NONE then self:Release() end
-	if IsValid(attacker) and attacker ~= self and not attacker:IsWorld() then self.Grudge = attacker end
-	if self.State == "flee" then return end
+	if self.State == "flee" then
+		if IsValid(attacker) and attacker ~= self and not attacker:IsWorld() then self.Grudge = attacker end
+		return
+	end
 
-	self.Anger = math.min(ANGER_MAX, (self.Anger or 0) + 1)
-	self.CalmAt = now + ANGER_FADE
+	self:Enrage(attacker, now)
 	self:SetPrey(NULL)
 	self:SetState("flee")
 	self.Goal = self:FindLair(IsValid(attacker) and attacker:EyePos() or from)
@@ -407,6 +411,13 @@ function ENT:LyingLow(now)
 	end
 	self:SetState("roam")
 	return false
+end
+
+-- Someone's hurt it: it's angrier for a while, and it remembers who.
+function ENT:Enrage(by, now)
+	if IsValid(by) and by ~= self and not by:IsWorld() then self.Grudge = by end
+	self.Anger = math.min(ANGER_MAX, (self.Anger or 0) + 1)
+	self.CalmAt = now + ANGER_FADE
 end
 
 function ENT:Cool(now)

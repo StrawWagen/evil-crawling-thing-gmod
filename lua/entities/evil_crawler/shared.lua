@@ -1,10 +1,14 @@
 include("evil_crawler/sh_ik.lua")
 include("evil_crawler/sh_morph.lua")
+include("evil_crawler/sh_struggle.lua")
 
 EvilCrawler.ACT_NONE = 0
 EvilCrawler.ACT_STRIKE = 1
 EvilCrawler.ACT_DRAG = 2
 EvilCrawler.ACT_FEED = 3
+EvilCrawler.ACT_GRAPPLE = 4 -- a player in its coil, fighting to get out
+EvilCrawler.ACT_STUN = 5 -- they got out, and it's reeling
+EvilCrawler.STUN_TIME = 3
 EvilCrawler.STRIKE_WINDUP = 0.4 -- one leg rears back, trembling
 EvilCrawler.STRIKE_LUNGE = 0.08 -- then whips into the victim
 EvilCrawler.WRAP_TIME = 0.15 -- and coils round the body as it drops
