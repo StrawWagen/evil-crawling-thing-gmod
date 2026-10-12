@@ -1,5 +1,9 @@
--- What the crawler wants. It has no eyes. It knows players and NPCs three ways:
+-- What the crawler wants. It knows players and NPCs four ways:
 --   touch   anyone close enough, whatever they're doing
+--   sight   anyone in plain view, out to a long way. Nothing's drawn to see
+--           with, and it sees all round. Movement catches it, stillness
+--           doesn't: what it half sees it freezes and watches, and once
+--           it's sure it goes for them. Out of view, it goes to look.
 --   tremor  players running on the ground with nothing solid in between
 --   scent   the trails everyone leaves (sv_scent.lua), followed toward
 --           fresher scent
@@ -19,6 +23,7 @@ local Scent = EvilCrawler.Scent
 local cv_burst = CreateConVar("evil_crawler_burst", "1100", FCVAR_ARCHIVE, "Top speed of a dart")
 local cv_puppet = CreateConVar("evil_crawler_puppet", "0", 0, "Crawlers follow their spawner's crosshair instead of thinking")
 local cv_debug = CreateConVar("evil_crawler_debug_scent", "0", 0, "Draw scent trails (needs developer 1)")
+local cv_sight = CreateConVar("evil_crawler_sight_range", "4000", FCVAR_ARCHIVE, "How far crawlers can see")
 local ai_ignoreplayers = GetConVar("ai_ignoreplayers")
 
 local THINK_INTERVAL = 0.25
@@ -30,6 +35,15 @@ local SCENT_THRESHOLD = 0.12 -- faintest scent worth following
 local TOUCH_RANGE = 220
 local TREMOR_RANGE = 1000
 local TREMOR_SPEED = 150 -- players moving slower than this make no tremor
+local SIGHT_CLEAR = 500 -- seen this close, distance takes nothing off how plainly
+local SIGHT_STILL, SIGHT_RUN = 0.2, 400 -- how visible someone standing still is; at this speed, fully
+local SIGHT_CROUCH = 0.5
+local SIGHT_LIT = 2 -- a lit flashlight or a gun going off makes someone this much plainer
+local FIRED_TIME = 1
+local SIGHT_GAIN = 3 -- how fast it grows sure of someone in plain view, per second
+local SIGHT_FADE = 0.25 -- and how fast that wears off
+local NOTICE = 0.35 -- this sure, it freezes and watches; fully sure, it goes for them
+local LEAD = 0.6 -- seconds of their running it allows for when they drop out of view
 local REACHED = 72 -- distance along the surface at which a goal counts as reached
 local SKIP_AHEAD = 260 -- heads straight for trail nodes this close, skipping the ones between
 local SEARCH_TIME = 8
@@ -63,12 +77,16 @@ local RHYTHM = {
 	hide = { pace = 0 },
 	grapple = { pace = 0 },
 	stunned = { pace = 0 },
+	watch = { pace = 0 },
 }
-local MOOD = { roam = 0, search = 1, track = 1, hunt = 2, strike = 2, drag = 2, feed = 1, flee = 2, hide = 0, grapple = 2, stunned = 0 }
+local MOOD = {
+	roam = 0, search = 1, track = 1, hunt = 2, strike = 2, drag = 2, feed = 1, flee = 2, hide = 0, grapple = 2,
+	stunned = 0, watch = 2,
+}
 local CHASING = { search = true, track = true, hunt = true }
 local STATE_COLOR = {
 	roam = Color(120, 120, 120), search = Color(255, 200, 0), track = Color(255, 120, 0), hunt = Color(255, 0, 0),
-	flee = Color(0, 200, 255), hide = Color(0, 80, 160),
+	flee = Color(0, 200, 255), hide = Color(0, 80, 160), watch = Color(255, 0, 255),
 }
 
 local function Perceivable(ent)
@@ -96,13 +114,96 @@ function ENT:Feels(ent, pos)
 	if not Perceivable(ent) then return false end
 	local d = ent:WorldSpaceCenter():Distance(pos)
 	if d < TOUCH_RANGE then return true, d end
+	if self.Spotted[ent] and self.InView[ent] then return true, d end
 	if d < TREMOR_RANGE and ent:IsOnGround() and ent:GetVelocity():Length() > TREMOR_SPEED then
 		return not self:Trace(pos, ent:WorldSpaceCenter()).Hit, d
 	end
 	return false
 end
 
--- What it can feel directly, by touch or tremor: the nearest NPC it could
+-- How plainly it can see `ent` from `pos` right now, 0 when it can't.
+-- Movement shows, closeness shows, and a light or a gunshot gives anyone away.
+function ENT:Visibility(ent, pos, now)
+	if not Perceivable(ent) then return 0 end
+	local range = cv_sight:GetFloat()
+	local center = ent:WorldSpaceCenter()
+	local d = center:Distance(pos)
+	if d >= range then return 0 end
+	if self:Trace(pos, ent:EyePos(), MASK_OPAQUE).Hit and self:Trace(pos, center, MASK_OPAQUE).Hit then return 0 end
+
+	local speed = ent:IsNPC() and (ent.EvilCrawlerSpeed or 0) or ent:GetVelocity():Length()
+	local v = Lerp(math.min(1, speed / SIGHT_RUN), SIGHT_STILL, 1)
+	v = v * math.min(1, 1 - (d - SIGHT_CLEAR) / math.max(1, range - SIGHT_CLEAR))
+	if ent:IsPlayer() and ent:Crouching() then v = v * SIGHT_CROUCH end
+	if (ent:IsPlayer() and ent:FlashlightIsOn()) or now - (ent.EvilCrawlerFiredAt or -math.huge) < FIRED_TIME then
+		v = v * SIGHT_LIT
+	end
+	return v
+end
+
+-- Looks round at every player, and every NPC it could eat if it's hungry,
+-- and grows surer of whoever's in view. Once it's sure of someone it doesn't
+-- lose them while they're in view, however still they keep.
+function ENT:Look(now)
+	local pos = self:GetPos()
+	local dt = math.min(now - (self.LastLook or now), THINK_INTERVAL * 2)
+	self.LastLook = now
+	self.Awareness = self.Awareness or {}
+	self.Spotted = self.Spotted or {}
+	self.InView = {}
+
+	local seen = {}
+	local function look(ent)
+		local v = self:Visibility(ent, pos, now)
+		if v <= 0 then return end
+		seen[ent] = v
+		self.InView[ent] = true
+		self.Awareness[ent] = self.Awareness[ent] or 0
+	end
+	for _, ply in ipairs(player.GetAll()) do look(ply) end
+	if self:IsHungry() then
+		for npc in pairs(Scent.npcs) do
+			if IsValid(npc) and self:IsEdible(npc) then look(npc) end
+		end
+	end
+
+	for ent, sure in pairs(self.Awareness) do
+		local v = seen[ent] or 0
+		sure = math.Clamp(sure + (v * SIGHT_GAIN - SIGHT_FADE) * dt, 0, 1)
+		if self.Spotted[ent] and v > 0 then sure = 1 end
+		if sure >= 1 then
+			self.Spotted[ent] = true
+		elseif sure < NOTICE then
+			self.Spotted[ent] = nil
+		end
+		if sure <= 0 or not IsValid(ent) then
+			self.Awareness[ent], self.Spotted[ent] = nil, nil
+		else
+			self.Awareness[ent] = sure
+		end
+	end
+end
+
+-- Whoever in view it's half sure of, the surest first.
+function ENT:Glimpse()
+	local best, bestSure
+	for ent in pairs(self.InView) do
+		local sure = self.Awareness[ent]
+		if sure >= NOTICE and not self.Spotted[ent] and (not best or sure > bestSure) then best, bestSure = ent, sure end
+	end
+	return best
+end
+
+-- Where someone it's lost was heading: a little way on from where it last
+-- had them, short of any wall.
+function ENT:Lead(ent)
+	if not ent:IsPlayer() then return ent:GetPos() end
+	local from = ent:GetPos() + Vector(0, 0, 32)
+	local tr = self:Trace(from, from + ent:GetVelocity() * LEAD)
+	return tr.HitPos + tr.HitNormal * 16 - Vector(0, 0, 32)
+end
+
+-- What it can sense directly, by touch, sight or tremor: the nearest NPC it could
 -- eat if it's hungry, otherwise the nearest player.
 function ENT:Sense()
 	local pos = self:GetPos()
@@ -192,6 +293,7 @@ function ENT:Ponder()
 	end
 
 	-- 1. direct contact beats everything
+	self:Look(now)
 	local prey = self:Sense()
 	self:SetPrey(prey or NULL)
 	if prey then
@@ -201,7 +303,7 @@ function ENT:Ponder()
 		end
 		self:SetState("hunt")
 		self.Goal = prey:GetPos()
-		self.LastKnown = prey:GetPos()
+		self.LastKnown = self:Lead(prey)
 		-- hanging from the ceiling right over them: drop
 		if self.BodyUp.z < -0.5 and self:Reached(prey:GetPos()) then
 			self.LetGoUntil = now + 0.4
@@ -214,7 +316,23 @@ function ENT:Ponder()
 		self.SearchUntil = now + SEARCH_TIME
 	end
 
-	-- 2. a scent trail: stay on the current one unless a much fresher one crosses it
+	-- 2. something's caught its eye: it goes dead still and watches until
+	-- it's sure, and if they slip out of view or keep still, it goes to look
+	local glimpse = self:Glimpse()
+	if glimpse then
+		self:SetPrey(glimpse)
+		self:SetState("watch")
+		self.Goal = nil
+		self.LastKnown = glimpse:GetPos()
+		return
+	end
+	if self.State == "watch" then
+		self:SetState("search")
+		self.Goal = self.LastKnown
+		self.SearchUntil = now + SEARCH_TIME
+	end
+
+	-- 3. a scent trail: stay on the current one unless a much fresher one crosses it
 	local node = self.Trail
 	if node and (node.dead or self:Appeal(node, now) < SCENT_THRESHOLD * 0.5) then node = nil end
 	self.WeighScent = self.WeighScent or function(n, t) return self:Appeal(n, t) end
@@ -238,13 +356,13 @@ function ENT:Ponder()
 	end
 	self.Trail = nil
 
-	-- 3. lost them: comb the area where they were last felt
+	-- 4. lost them: comb the area where they were last felt
 	if self.State == "search" and now < self.SearchUntil then
 		if self:Reached(self.Goal) then self.Goal = self:Around(self.LastKnown, SEARCH_SPREAD) end
 		return
 	end
 
-	-- 4. nothing: wander, holding a heading for a while
+	-- 5. nothing: wander, holding a heading for a while
 	if self.State ~= "roam" or now > (self.NextVeer or 0) then
 		self.Heading = VectorRand():GetNormalized()
 		self.NextVeer = now + math.Rand(4, 9)
@@ -372,6 +490,7 @@ end
 
 -- Bullets are caught by hand: the legs have no collision of their own.
 hook.Add("EntityFireBullets", "EvilCrawlerShot", function(shooter, data)
+	shooter.EvilCrawlerFiredAt = CurTime() -- the flash gives them away
 	local dir = data.Dir:GetNormalized()
 	local range = data.Distance or 56756
 	local filter = { shooter, data.IgnoreEntity }

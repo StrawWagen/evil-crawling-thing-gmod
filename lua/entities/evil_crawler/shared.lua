@@ -134,10 +134,10 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Entity", 1, "Victim") -- the NPC while striking, then its corpse
 end
 
-function ENT:Trace(from, to)
+function ENT:Trace(from, to, mask)
 	self.TraceFilter = self.TraceFilter or function(e)
 		-- ragdolls too, or it would try to walk on the body it's carrying
 		return e ~= self and not e:IsPlayer() and not e:IsNPC() and e:GetClass() ~= "prop_ragdoll"
 	end
-	return util.TraceLine({ start = from, endpos = to, filter = self.TraceFilter, mask = MASK_SOLID })
+	return util.TraceLine({ start = from, endpos = to, filter = self.TraceFilter, mask = mask or MASK_SOLID })
 end
