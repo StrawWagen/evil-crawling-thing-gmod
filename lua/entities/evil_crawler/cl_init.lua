@@ -5,6 +5,8 @@ include("evil_crawler/cl_struggle.lua")
 
 local cv_debug = CreateClientConVar("evil_crawler_debug", "0", false, false, "Draw foot targets")
 
+language.Add("evil_crawler", "Evil Crawler") -- the kill feed
+
 local LEAD_TIME = 0.18 -- feet aim this far ahead along the body's velocity
 local SNAP_GAP = 0.5 -- seconds without an update before limbs are re-planted from scratch
 local MAX_AIRBORNE = 0.4 -- share of legs allowed mid-step at once
