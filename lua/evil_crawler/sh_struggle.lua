@@ -33,4 +33,5 @@ hook.Add("StartCommand", "EvilCrawlerStruggle", function(ply, cmd)
 
 	cmd:ClearMovement()
 	cmd:ClearButtons()
+	if CLIENT and jump then cmd:SetButtons(IN_JUMP) end
 end)
