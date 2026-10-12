@@ -1,6 +1,3 @@
--- Server settings: the convars every crawler goes by. Replicated, so the
--- settings panel (cl_settings.lua) can show them; superadmins change them
--- from there, or anyone from the server console.
 EvilCrawler = EvilCrawler or {}
 
 EvilCrawler.SETTINGS = {

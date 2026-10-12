@@ -1,8 +1,5 @@
 EvilCrawler = EvilCrawler or {}
 
--- FABRIK. `points` is a starting guess for the joint chain and is solved in
--- place so it runs from root toward target with fixed segment lengths. The
--- shape of the guess decides which way the chain bends.
 function EvilCrawler.SolveChain(points, lengths, root, target, iterations)
 	local n = #points
 	for _ = 1, iterations do

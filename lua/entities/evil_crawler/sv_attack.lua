@@ -1,20 +1,3 @@
--- How it feeds: one leg rears back, whips out and coils round an NPC, and
--- holds on while they fight it and the teeth along it put them under
--- (sv_victim.lua). That leg is done walking until it lets go: it carries them
--- somewhere out of sight, waits there until they've stopped struggling, then
--- shifts its grip to the head and hauls them up into its mouth, where the
--- legs meet. It holds them there, asleep, slowly turning, while the other
--- legs stab into the mouthful going in and tear it apart, until it's
--- swallowed and the next is drawn in: head, shoulders, chest, hips, legs,
--- until there's nothing left. It never eats anything still fighting: not
--- worth it.
--- Players it goes for whenever it isn't still busy with its last meal. A player in
--- the coil gets a few seconds to fight their way out (sh_struggle.lua) while
--- it reels them in and the teeth go to work. Out, they're flung clear and it
--- reels, curled up, for a moment, and it remembers them: the next time, the
--- coil's tighter. Still in it when time's up, they've gone under, and it's
--- off with them like any other body.
-
 local Victim = EvilCrawler.Victim
 local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
 	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
@@ -24,40 +7,40 @@ local HELD_VAR, FREE_VAR = EvilCrawler.HELD_VAR, EvilCrawler.FREE_VAR
 local IMPACT_TIME = EvilCrawler.STRIKE_WINDUP + EvilCrawler.STRIKE_LUNGE
 
 local ATTACK_REACH = 140
-local MISS_REACH = ATTACK_REACH * 1.5 -- got this far away during the windup: the strike misses
+local MISS_REACH = ATTACK_REACH * 1.5
 local PULL_TIME = EvilCrawler.PULL_TIME
-local TRAIL_RATE = 1.5 -- how fast a carried body swings round behind it
-local TRAIL_SPEED = 250 -- past this speed it swings round proportionally faster
+local TRAIL_RATE = 1.5
+local TRAIL_SPEED = 250
 local FEEDERS = EvilCrawler.FEEDERS
 local BITE_IN, BITE_RIP = EvilCrawler.BITE_IN, EvilCrawler.BITE_RIP
 local BiteCycle, BiteBone = EvilCrawler.BiteCycle, EvilCrawler.BiteBone
 local PARTS, CurrentPart = EvilCrawler.PARTS, EvilCrawler.CurrentPart
-local TORSO_TIME = 6 -- picks at a body it can't swallow this long before it's done
-local FINISH_TIME = 2 -- the last mouthful goes down this long after it's torn loose
-local GULP_DEPTH = 5 -- how far each swallow draws the mouthful in
-local GULP_RATE = 1.7 -- swallows a second, roughly
-local FEED_CAP = 60 -- gives up eating after this long, whatever's left
+local TORSO_TIME = 6
+local FINISH_TIME = 2
+local GULP_DEPTH = 5
+local GULP_RATE = 1.7
+local FEED_CAP = 60
 local STAB_FORCE = 120
 local RIP_FORCE = 350
-local DRAINED = 40 -- rips until the body is as dark as it gets
-local TURN_SPEED = 35 -- degrees a second it turns the body over while eating
-local DRAG_TIME = 15 -- gives up looking for somewhere private after this long and stops where it is
-local ANGER_HUNGER = 0.5 -- each step of anger shortens how long a meal lasts it by this share
+local DRAINED = 40
+local TURN_SPEED = 35
+local DRAG_TIME = 15
+local ANGER_HUNGER = 0.5
 local LAIR_TRIES = 12
-local LAIR_RANGE = { 700, 2500 } -- far enough that the haul there is a long, fast one
-local OUT_OF_SIGHT = 1500 -- what a hiding place gains from being somewhere `threat` can't see
+local LAIR_RANGE = { 700, 2500 }
+local OUT_OF_SIGHT = 1500
 local DISTURB_RANGE = 330
-local PRESS_GAIN = 0.1 -- how much looser each press works a held player
-local PRESS_GAP = 1 / 16 -- presses closer together than this don't count
-local SLIP = 0.3 -- how much of that the coil takes back a second
-local ESCAPE_MEMORY = 90 -- seconds it remembers someone getting away
-local REEL = 0.45 -- share of the way in a held player has been reeled by the time they go under
-local LIFT = 18 -- how far off their feet they're lifted
+local PRESS_GAIN = 0.1
+local PRESS_GAP = 1 / 16
+local SLIP = 0.3
+local ESCAPE_MEMORY = 90
+local REEL = 0.45
+local LIFT = 18
 local NIP_TIME = { 0.45, 0.9 }
 local NIP_DAMAGE = 2
-local THROWN = { 420, 220 } -- how hard someone who fights free is flung clear: away, and up
+local THROWN = { 420, 220 }
 local STUN_KNOCK = 300
-local SPOOKED = 60 -- someone who got away sweats fear this long
+local SPOOKED = 60
 
 local WINDUP_SOUNDS = { "npc/barnacle/barnacle_tongue_pull1.wav", "npc/barnacle/barnacle_tongue_pull2.wav" }
 local LUNGE_SOUND = "npc/zombie/claw_miss1.wav"
@@ -89,7 +72,6 @@ local STUN_SOUNDS = { "npc/barnacle/barnacle_die1.wav", "npc/barnacle/barnacle_d
 local STUN_CRACK = "physics/flesh/flesh_squishy_impact_hard2.wav"
 local SIDES = { Vector(1, 0, 0), Vector(-1, 0, 0), Vector(0, 1, 0), Vector(0, -1, 0) }
 
--- Walking NPCs roughly human sized: big enough to wrap, small enough to hold.
 function ENT:IsEdible(ent)
 	if not ent:IsNPC() or ent:Health() <= 0 or ent.EvilCrawlerVictim then return false end
 	if ent:GetMoveType() ~= MOVETYPE_STEP then return false end
@@ -101,11 +83,6 @@ function ENT:IsHungry()
 	return CurTime() >= (self.SatedUntil or 0)
 end
 
--- Players are always fair game, fed or not, once it's had a moment to get
--- its last meal down. Anyone who's hurt it, even sooner.
--- Whether it has any interest in a player at all right now. Anyone it
--- couldn't take, it doesn't see, feel or smell, so it never hangs about over
--- someone it isn't going to grab.
 function ENT:Wants(ply)
 	if EvilCrawler.IgnoresPlayers() or ply:InVehicle() then return false end
 	if ply:LookupBone("ValveBiped.Bip01_Spine2") == nil then return false end
@@ -133,11 +110,9 @@ function ENT:StartStrike(npc)
 	self:SetActStart(CurTime())
 	self:SetState("strike")
 	self.Lunged = false
-	self.DetourUntil = nil -- or it darts off mid-strike
+	self.DetourUntil = nil
 end
 
--- Ends whatever it's doing. A victim that dodged the strike is fair game
--- again; a body is let go, to get up later if there's anything left of it.
 function ENT:Release()
 	local victim = self:GetVictim()
 	if IsValid(victim) and (victim:IsNPC() or victim:IsPlayer()) and victim.EvilCrawlerVictim == self then
@@ -168,7 +143,6 @@ function ENT:Sate(now)
 	self.SatedUntil = now + EvilCrawler.Setting("sated_time") / (1 + ANGER_HUNGER * (self.Anger or 0))
 end
 
--- The leg lands and coils round them, and they're off their feet.
 function ENT:Strike(npc)
 	local now = CurTime()
 	local center = npc:WorldSpaceCenter()
@@ -178,7 +152,7 @@ function ENT:Strike(npc)
 
 	local corpse = Victim.Grab(npc, self)
 	if not IsValid(corpse) then
-		self:Release() -- nothing it can get a grip on
+		self:Release()
 		return
 	end
 	sound.Play(GRAB_SOUNDS[math.random(#GRAB_SOUNDS)], center, 75, math.random(80, 95))
@@ -189,7 +163,6 @@ function ENT:Strike(npc)
 	self:StartDrag(now)
 end
 
--- The leg lands on a player and coils round them, and the fight is on.
 function ENT:Seize(ply, now)
 	if not ply:Alive() or ply:InVehicle() or ply:GetMoveType() == MOVETYPE_NOCLIP then
 		self:Release()
@@ -212,23 +185,17 @@ function ENT:Seize(ply, now)
 	self:SetState("grapple")
 end
 
--- Lets a held player go, back on their own feet.
 function ENT:LetGo(ply)
 	if EvilCrawler.Holder(ply) ~= self then return end
 	ply:SetNW2Entity(HELD_VAR, NULL)
 	ply:SetMoveType(MOVETYPE_WALK)
 end
 
--- How fast the coil takes back what a held player fights loose: faster for
--- someone who's already got away lately.
 function ENT:GripOn(ply)
 	local recent = CurTime() - (ply.EvilCrawlerEscapedAt or -math.huge) < ESCAPE_MEMORY
 	return SLIP * (1 + EvilCrawler.Setting("escape_tighten") * (recent and ply.EvilCrawlerEscapes or 0))
 end
 
--- Every tick a player is in the coil: reeling them in and up, the teeth
--- going in, the coil taking back what they've fought loose. Still in it when
--- time's up, they've gone under.
 function ENT:Grapple(ply, now)
 	if not ply:Alive() or ply:GetObserverMode() ~= OBS_MODE_NONE then
 		self:Release()
@@ -260,7 +227,6 @@ function ENT:Grapple(ply, now)
 	end
 end
 
--- A held player fights it: every press of jump works them a little looser.
 function ENT:Struggled(ply)
 	if self:GetAct() ~= ACT_GRAPPLE or self:GetVictim() ~= ply then return end
 	local now = CurTime()
@@ -279,8 +245,6 @@ function ENT:Struggled(ply)
 	end
 end
 
--- They fought free: the coil springs open and they're flung clear. It
--- remembers.
 function ENT:BrokeFree(ply, now)
 	self:Release()
 	ply:SetNW2Float(FREE_VAR, 0)
@@ -297,7 +261,6 @@ function ENT:BrokeFree(ply, now)
 	self:Stun(ply, now)
 end
 
--- Knocked loose of whatever it was on, legs curled up under it, for a moment.
 function ENT:Stun(by, now)
 	self:SetAct(ACT_STUN)
 	self:SetActStart(now)
@@ -311,7 +274,6 @@ function ENT:Stun(by, now)
 	self:Enrage(by, now)
 end
 
--- Time's up: they've gone under. They're a body now, and it's off with them.
 function ENT:Overpower(ply, now)
 	self:LetGo(ply)
 	ply.EvilCrawlerVictim = nil
@@ -345,9 +307,6 @@ local function NearestPlayer(spot)
 	return nearest
 end
 
--- Somewhere private to eat or hide: far from every player (and from
--- `threat`, if given, and out of its sight), ideally with a roof overhead
--- and walls close around.
 function ENT:FindLair(threat)
 	local pos = self:GetPos()
 	local best, bestScore = pos, -math.huge
@@ -384,16 +343,12 @@ function ENT:Disturbed()
 	return false
 end
 
--- How far into the haul up into the mouth, 0..1. Reeled in by jerks.
 function ENT:Pull(now)
 	if self:GetAct() ~= ACT_FEED then return 0 end
 	local t = now - self:GetActStart()
 	return math.Clamp((t + 0.06 * math.sin(t * 12)) / PULL_TIME, 0, 1)
 end
 
--- Where the holding leg keeps the body: carried low at the leg's length,
--- swinging round to trail behind as it crawls, and hauled up into the mouth
--- once it's somewhere quiet, where every swallow draws it a little further in.
 function ENT:HoldPoint(now, dt)
 	local pos, up, h = self:GetPos(), self.BodyUp, self.BodyHeight
 	local dir = self.CarryDir or -self.Facing
@@ -424,8 +379,6 @@ local function BitePhys(corpse, name)
 	return IsValid(phys) and phys
 end
 
--- What the holding leg has hold of: whatever mouthful is going in once it's
--- started eating, or once anything's gone; the chest before that.
 function ENT:Held(corpse)
 	local part = CurrentPart(corpse)
 	if not part or (part == 1 and self:GetAct() ~= ACT_FEED) then return { Chest(corpse) } end
@@ -437,9 +390,6 @@ function ENT:Held(corpse)
 	return held
 end
 
--- The body hangs from the holding leg by what it's holding. Two bones (a pair
--- of legs) go in side by side. With a loose grip the body keeps more of its
--- own momentum.
 function ENT:HoldCorpse(corpse, hold, stiffness, grip)
 	local held = self:Held(corpse)
 	local side = self.BodyUp:Cross(self.Facing)
@@ -450,7 +400,7 @@ function ENT:HoldCorpse(corpse, hold, stiffness, grip)
 			local p = phys:GetPos()
 			self.HoldLag = math.max(self.HoldLag, p:Distance(at))
 			if p:Distance(at) > 600 then
-				self:Release() -- snagged on something; leave it
+				self:Release()
 				return
 			end
 			phys:SetVelocity(LerpVector(0.5 * grip, phys:GetVelocity(), (at - p) * stiffness + self.Vel))
@@ -458,7 +408,6 @@ function ENT:HoldCorpse(corpse, hold, stiffness, grip)
 	end
 end
 
--- A leg drives into the body from above.
 function ENT:Stab(phys)
 	local p, up = phys:GetPos(), self.BodyUp
 	phys:ApplyForceCenter(-up * phys:GetMass() * STAB_FORCE)
@@ -474,8 +423,6 @@ function ENT:Stab(phys)
 	end
 end
 
--- It tears back out with a piece, jerking the limb after it. A moment later
--- the piece reaches the tangle and goes down.
 function ENT:Rip(phys, corpse)
 	local p, up = phys:GetPos(), self.BodyUp
 	local dir = (up + VectorRand() * 0.5):GetNormalized()
@@ -504,8 +451,6 @@ function ENT:Rip(phys, corpse)
 	end)
 end
 
--- A mouthful, stripped down to nothing. Its physics stays on to hold the
--- ragdoll together, but nothing can touch it.
 local function Strip(corpse, part)
 	for _, bone in ipairs(EvilCrawler.PartBones(corpse, part)) do
 		corpse:ManipulateBoneScale(bone, Vector(0, 0, 0))
@@ -517,7 +462,6 @@ local function Strip(corpse, part)
 	end
 end
 
--- The last of a mouthful goes down: a burst of blood out of the mouth.
 function ENT:Consume(corpse, part, now)
 	local p = self:GetPos()
 	Strip(corpse, part)
@@ -545,9 +489,6 @@ function ENT:Consume(corpse, part, now)
 	Victim.Maimed(corpse, PARTS[part].grip[1], self)
 end
 
--- Once the body is hauled in: runs the bite schedule each feeding leg is
--- drawn following, and slowly turns the body as it goes in. Every leg works
--- the mouthful going in until it's gone.
 function ENT:Feed(corpse, now)
 	local t = now - self:GetActStart() - PULL_TIME
 	if t < 0 then return end
@@ -561,7 +502,6 @@ function ENT:Feed(corpse, now)
 		local last = self.BiteStage[k]
 		self.BiteStage[k] = stage
 		if last and stage ~= last and stage % 3 ~= 0 then
-			-- which part this bite is on is settled when the leg goes in
 			if stage % 3 == 1 then self.BitePart[k] = CurrentPart(corpse) or false end
 			local part = self.BitePart[k] or nil
 			local phys = BitePhys(corpse, BiteBone(seed, k, n, part))
@@ -590,15 +530,13 @@ function ENT:Feed(corpse, now)
 	end
 end
 
--- Brain side: where to go during each act, and when to move on.
 function ENT:PonderAct(now)
 	local act = self:GetAct()
 	if act ~= ACT_STUN and not IsValid(self:GetVictim()) then
-		self:Release() -- removed out from under it
+		self:Release()
 		return
 	end
 	if act == ACT_STRIKE then
-		-- a player won't stand still for the windup: it keeps after them
 		local victim = self:GetVictim()
 		if IsValid(victim) and victim:IsPlayer() then
 			self.Goal, self.Pace = victim:GetPos(), 1
@@ -614,7 +552,6 @@ function ENT:PonderAct(now)
 		self.Goal = self.Lair
 		local there = self:Reached(self.Lair) or now > self.ActDeadline
 		if there and Victim.Fighting(self:GetVictim()) then
-			-- holds them there until they stop fighting, unless someone comes
 			self.Goal = nil
 			if self:Disturbed() then self:StartDrag(now) end
 		elseif there then
@@ -623,24 +560,23 @@ function ENT:PonderAct(now)
 			self:SetState("feed")
 			self.FeedUntil = now + PULL_TIME + FEED_CAP
 			if not CurrentPart(self:GetVictim()) then
-				self.FeedUntil = now + PULL_TIME + TORSO_TIME -- nothing left worth the trouble
+				self.FeedUntil = now + PULL_TIME + TORSO_TIME
 			end
 		end
 	elseif act == ACT_FEED then
 		self.Goal = nil
 		local victim = self:GetVictim()
 		if not self.Devoured and self:Disturbed() then
-			self:StartDrag(now) -- someone came close: take it somewhere else
+			self:StartDrag(now)
 		elseif now > self.FeedUntil then
 			if Victim.Alive(victim) then Victim.Kill(victim, self) end
-			if self.Devoured then victim:Remove() end -- all gone
+			if self.Devoured then victim:Remove() end
 			self:Sate(now)
 			self:Release()
 		end
 	end
 end
 
--- Every tick: time the strike, or keep the body in hand.
 function ENT:UpdateAct(now)
 	local act = self:GetAct()
 	if act == ACT_NONE or act == ACT_STUN then return end
@@ -653,7 +589,7 @@ function ENT:UpdateAct(now)
 
 	if act == ACT_STRIKE then
 		if victim:Health() <= 0 then
-			self:Release() -- something else killed it first
+			self:Release()
 			return
 		end
 		local t = now - self:GetActStart()

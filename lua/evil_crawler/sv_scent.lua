@@ -1,31 +1,25 @@
--- Every player and NPC leaves a scent trail as they move: a chain of nodes, each one
--- fading over time. Crawlers don't know where players are; they smell where
--- players have been and follow the chain toward fresher scent. One shared
--- scent map serves every crawler on the server.
--- Frightened NPCs, and players who got out of a crawler's coil, sweat fear
--- into their trail: it draws crawlers in whether they're hungry or not.
 EvilCrawler = EvilCrawler or {}
 local Scent = EvilCrawler.Scent or {}
 EvilCrawler.Scent = Scent
 
 local DROP_INTERVAL = 0.25
-local DROP_SPACING = 48 -- a moving player leaves a node every this many units
-local LINGER_REFRESH = 3 -- a player standing still re-marks their spot this often
-local TELEPORT = 512 -- moving further than this between drops starts a new trail
-local HALF_LIFE = 45 -- seconds for scent to fade to half strength
+local DROP_SPACING = 48
+local LINGER_REFRESH = 3
+local TELEPORT = 512
+local HALF_LIFE = 45
 local MAX_AGE = 240
-local BLEED_TIME = 10 -- seconds after taking damage that a player's scent is stronger
-local NPC_SLOW, NPC_FAST = 40, 240 -- NPC speeds that leave the faintest and heaviest trails
-local FEAR = 1.5 -- extra strength a frightened NPC's trail carries
-local FIGHTING = 0.4 -- and one in a fight
+local BLEED_TIME = 10
+local NPC_SLOW, NPC_FAST = 40, 240
+local FEAR = 1.5
+local FIGHTING = 0.4
 local CELL = 128
 
 local cv_debug = CreateConVar("evil_crawler_debug_scent", "0", 0, "Draw scent trails (needs developer 1)")
 
-Scent.cells = Scent.cells or {} -- spatial hash: cell key -> set of nodes
-Scent.trails = Scent.trails or {} -- set of live trails
-Scent.active = Scent.active or {} -- player or NPC -> the trail they're currently laying
-Scent.npcs = Scent.npcs or {} -- every live NPC, so nothing has to scan all entities
+Scent.cells = Scent.cells or {}
+Scent.trails = Scent.trails or {}
+Scent.active = Scent.active or {}
+Scent.npcs = Scent.npcs or {}
 
 local function Key(ix, iy, iz)
 	return (ix + 512) * 1048576 + (iy + 512) * 1024 + (iz + 512)
@@ -63,7 +57,6 @@ local function Afraid(ent, now)
 	return now < (ent.EvilCrawlerFearUntil or 0)
 end
 
--- Frightens every NPC within radius of pos for `duration` seconds.
 function Scent.Frighten(pos, radius, duration)
 	local now, r2 = CurTime(), radius * radius
 	for npc in pairs(Scent.npcs) do
@@ -73,8 +66,6 @@ function Scent.Frighten(pos, radius, duration)
 	end
 end
 
--- Sprinting and bleeding leave a heavy trail, crouching a faint one. NPCs
--- running, fighting or frightened leave a heavier one than NPCs standing about.
 local function Strength(ply, now)
 	local s = 1
 	if ply:IsNPC() then
@@ -155,8 +146,6 @@ local function Prune(now)
 	end
 end
 
--- The strongest scent within radius of pos, and how strong it is. `weigh`,
--- if given, says how strong a node counts as instead of its intensity.
 function Scent.Strongest(pos, radius, now, weigh)
 	local best, bestIntensity = nil, 0
 	local r2 = radius * radius
@@ -204,7 +193,7 @@ timer.Create("EvilCrawlerScent", DROP_INTERVAL, 0, function()
 		if LeavesScent(ent) then
 			Drop(ent, now)
 		else
-			Scent.active[ent] = nil -- whatever they do next starts a new trail
+			Scent.active[ent] = nil
 		end
 	end
 	for _, ply in ipairs(player.GetAll()) do visit(ply) end
@@ -215,12 +204,9 @@ timer.Create("EvilCrawlerScent", DROP_INTERVAL, 0, function()
 	if cv_debug:GetBool() then DrawDebug(now) end
 end)
 
--- Show scent trails (cl_scent.lua): every player is sent the scent near
--- them, each node set down on the ground under it, and which of it the
--- crawlers are following.
 local SHOW_INTERVAL = 0.5
 local SHOW_RANGE = 2500
-local SHOW_MAX = 600 -- nodes a player is sent at once
+local SHOW_MAX = 600
 local GROUND = Vector(0, 0, 72)
 
 util.AddNetworkString("EvilCrawlerScent")

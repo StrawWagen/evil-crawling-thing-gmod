@@ -1,39 +1,26 @@
--- What happens to the NPCs a crawler grabs. The NPC is put away, frozen and
--- hidden, and a ragdoll lies in for it, wide awake. It fights the leg and
--- screams while small teeth along the coil work something into it, and over
--- a few seconds it goes under: thrashing, then whimpering, then asleep.
--- Dropped, it wears off; once it can, it gets back up and runs, unless it's
--- missing a part, in which case it lies where it's dropped and bleeds out. It
--- dies once it's been eaten enough, when its head goes, or when someone
--- shoots the body.
--- A player who couldn't fight their way out of the coil goes the same way,
--- already most of the way under. They watch the crawler from outside their
--- body (cl_struggle.lua) while it has them, and right to the end. If it ever
--- drops them, they watch the body instead, and get back up in it with what
--- they were carrying once they come round.
 EvilCrawler = EvilCrawler or {}
 local Victim = EvilCrawler.Victim or {}
 EvilCrawler.Victim = Victim
 
-local WEAR_OFF = 20 -- seconds for being fully under to wear off once it's let go
-local GETUP_SEDATION = 0.35 -- gets up once it's worn off this far
-local GETUP_TIME = 2 -- lies there at least this long after it's let go before getting up
-local SETTLED = 60 -- and not until the body has stopped tumbling
+local WEAR_OFF = 20
+local GETUP_SEDATION = 0.35
+local GETUP_TIME = 2
+local SETTLED = 60
 local THRASH_FORCE = 450
-local WOUND = { 0.08, 0.13 } -- share of max health each piece torn away costs
-local FADING = 0.3 -- below this share of health, too far gone to scream
-local CRY_FEAR = { radius = 900, time = 30 } -- NPCs this close to a cry are frightened this long
-local STRIKE_FEAR = { radius = 600, time = 20 } -- and to the grab
-local ESCAPE_FEAR = 90 -- an NPC that got away stays frightened this long
-local BLEED = 0.02 -- share of max health lost a second once a part is gone
-local TAKEN_SEDATION = 0.7 -- how far under a player is by the time they lose the fight
+local WOUND = { 0.08, 0.13 }
+local FADING = 0.3
+local CRY_FEAR = { radius = 900, time = 30 }
+local STRIKE_FEAR = { radius = 600, time = 20 }
+local ESCAPE_FEAR = 90
+local BLEED = 0.02
+local TAKEN_SEDATION = 0.7
 
 local NIP_SOUNDS = {
 	"physics/flesh/flesh_impact_bullet2.wav",
 	"physics/flesh/flesh_impact_bullet4.wav",
 }
 
-Victim.bodies = Victim.bodies or {} -- every ragdoll standing in for a live NPC
+Victim.bodies = Victim.bodies or {}
 
 local LIMBS = {
 	"ValveBiped.Bip01_L_Hand", "ValveBiped.Bip01_R_Hand", "ValveBiped.Bip01_L_Forearm",
@@ -44,8 +31,6 @@ local STANDING_OFFSETS = {
 	Vector(0, 0, 0), Vector(24, 0, 0), Vector(-24, 0, 0), Vector(0, 24, 0), Vector(0, -24, 0), Vector(0, 0, 24),
 }
 
--- Voices: what they cry out when they come to, while they're carried, while
--- they're eaten, and at the end.
 local function Numbered(path, from, to)
 	local t = {}
 	for i = from, to do t[#t + 1] = string.format(path, i) end
@@ -125,8 +110,6 @@ local VOICES = {
 	},
 }
 
--- Anything else with a human skeleton gets a citizen's voice; anything else
--- at all suffers quietly.
 local function VoiceOf(npc, rag)
 	local voice = VOICES[npc:GetClass()]
 	if voice then return voice end
@@ -169,23 +152,18 @@ local function Thrash(rag, strength, kicks)
 	end
 end
 
--- A few small teeth through the clothes. Too fine to draw blood.
 local function Nip(rag)
 	local phys = PhysOf(rag, LIMBS[math.random(#LIMBS)])
 	if not phys then return end
 	sound.Play(NIP_SOUNDS[math.random(#NIP_SOUNDS)], phys:GetPos(), 55, math.random(130, 160), 0.4)
 end
 
--- The body doesn't bleed (onto the floor it's dragged across, say) until
--- the first stab opens it up.
 function Victim.Opened(rag)
 	if rag.EvilCrawlerOpened then return end
 	rag.EvilCrawlerOpened = true
 	rag:SetBloodColor(BLOOD_COLOR_RED)
 end
 
--- Moves a ragdoll's bones into the NPC's current pose, so the grab flows
--- straight into the body in the leg's coil.
 local function Pose(rag, npc)
 	for i = 0, rag:GetPhysicsObjectCount() - 1 do
 		local phys = rag:GetPhysicsObjectNum(i)
@@ -209,7 +187,6 @@ local function Hide(npc)
 	npc:ClearSchedule()
 end
 
--- A ragdoll dressed and posed as `ent`, or nil if none can be had.
 local function Body(ent)
 	local rag = ents.Create("prop_ragdoll")
 	if not IsValid(rag) then return end
@@ -230,11 +207,10 @@ local function Body(ent)
 		return
 	end
 	rag:SetCollisionGroup(COLLISION_GROUP_WEAPON)
-	rag:SetBloodColor(DONT_BLEED) -- until Victim.Opened
+	rag:SetBloodColor(DONT_BLEED)
 	return rag
 end
 
--- `ent` is in the body now, held by `holder`, `sedation` of the way under.
 local function Hold(rag, ent, holder, sedation)
 	ent.EvilCrawlerBody = rag
 	rag.EvilCrawlerOwner = ent
@@ -247,8 +223,6 @@ local function Hold(rag, ent, holder, sedation)
 	EvilCrawler.Scent.Frighten(rag:GetPos(), STRIKE_FEAR.radius, STRIKE_FEAR.time)
 end
 
--- Takes the NPC in hand and returns the ragdoll lying in for it, held by
--- `holder`, or nil if no ragdoll can be had.
 function Victim.Grab(npc, holder)
 	local rag = Body(npc)
 	if not rag then return end
@@ -262,8 +236,6 @@ function Victim.Grab(npc, holder)
 	return rag
 end
 
--- A player who lost the fight in the coil. What they were carrying is put
--- by, and they watch their body from outside it.
 function Victim.Take(ply, holder)
 	local rag = Body(ply)
 	if not rag then return end
@@ -291,25 +263,20 @@ function Victim.Alive(rag)
 	return IsValid(rag) and IsValid(rag.EvilCrawlerOwner)
 end
 
--- Still alive and not yet gone under.
 function Victim.Fighting(rag)
 	return Victim.Alive(rag) and rag.Sedation < 1
 end
 
--- How much of them is still there to fight and cry out, 0..1.
 local function Lucid(rag)
 	return 1 - rag.Sedation
 end
 
--- What a player in the body watches: whatever has hold of it, or the body
--- itself once it's dropped.
 local function Watched(rag)
 	local holder = rag.EvilCrawlerHolder
 	if IsValid(holder) and holder:GetVictim() == rag then return holder end
 	return rag
 end
 
--- The body is just a body now.
 function Victim.Kill(rag, attacker)
 	local npc = rag.EvilCrawlerOwner
 	if not IsValid(npc) then return end
@@ -321,7 +288,6 @@ function Victim.Kill(rag, attacker)
 
 	npc.EvilCrawlerBody = nil
 	if npc:IsPlayer() then
-		-- dead, and still watching what's left of them
 		npc:KillSilent()
 		npc:AddDeaths(1)
 		hook.Run("PlayerDeath", npc, attacker, attacker)
@@ -334,7 +300,6 @@ function Victim.Kill(rag, attacker)
 	npc:Remove()
 end
 
--- Something hurt the body, or tore a piece off it.
 function Victim.Hurt(rag, amount, attacker)
 	local npc = rag.EvilCrawlerOwner
 	if not IsValid(npc) then return end
@@ -348,8 +313,6 @@ function Victim.Wound(rag, attacker)
 	Victim.Hurt(rag, math.max(1, npc:GetMaxHealth()) * math.Rand(WOUND[1], WOUND[2]), attacker)
 end
 
--- A leg drives into them. Under, they barely stir; anyone still lucid
--- screams with every one.
 function Victim.Pierced(rag)
 	Victim.Opened(rag)
 	local npc = rag.EvilCrawlerOwner
@@ -368,19 +331,16 @@ function Victim.Pierced(rag)
 	Thrash(rag, 1.2 * lucid, 3)
 end
 
--- A part of them has been eaten away. Without a head that's the end of it;
--- otherwise they won't be getting up again.
 function Victim.Maimed(rag, bone, attacker)
 	if not Victim.Alive(rag) then return end
 	if bone == "ValveBiped.Bip01_Head1" then
-		rag.Sedation = 1 -- nothing left to cry out with
+		rag.Sedation = 1
 		Victim.Kill(rag, attacker)
 		return
 	end
 	rag.Maimed = true
 end
 
--- Somewhere the NPC or player fits standing up, near the body.
 local function StandingSpot(npc, rag)
 	local pos = rag:GetPos()
 	local mins, maxs, mask = npc:OBBMins(), npc:OBBMaxs(), MASK_NPCSOLID
@@ -399,8 +359,6 @@ local function StandingSpot(npc, rag)
 	return pos
 end
 
--- A player comes round and is back in their body, with everything they had
--- on them.
 local function PlayerGetUp(rag, ply)
 	Victim.bodies[rag] = nil
 	rag.EvilCrawlerOwner = nil
@@ -431,7 +389,6 @@ local function PlayerGetUp(rag, ply)
 	rag:Remove()
 end
 
--- It gets up, worse for wear, and runs.
 local function GetUp(rag, npc)
 	if npc:IsPlayer() then
 		PlayerGetUp(rag, npc)
@@ -472,7 +429,6 @@ local function Update(rag, now)
 	local eaten = held and holder:GetAct() == EvilCrawler.ACT_FEED
 	if held then rag.LetGoAt = nil else rag.LetGoAt = rag.LetGoAt or now end
 
-	-- held, the teeth keep it going under; let go, it wears off
 	local dt = FrameTime()
 	if held then
 		rag.Sedation = math.min(1, rag.Sedation + dt / math.max(0.1, EvilCrawler.Setting("sedate_time")))
@@ -492,7 +448,6 @@ local function Update(rag, now)
 
 	if not held then
 		if rag.Maimed then
-			-- can't get up like this: writhes where it lies, fainter and fainter
 			if lucid < 0.15 then return end
 			if now >= (rag.NextThrash or 0) then
 				local life = math.Clamp(npc:Health() / math.max(1, npc:GetMaxHealth()), 0.1, 1)
@@ -511,20 +466,17 @@ local function Update(rag, now)
 		return
 	end
 
-	-- the teeth: small bites wherever they can get through
 	if lucid > 0 and now >= (rag.NextNip or 0) then
 		rag.NextNip = now + math.Rand(0.5, 1.1)
 		Nip(rag)
 	end
 
-	-- fights it, less and less as it goes under and as there's less of them
 	if lucid < 0.15 then return end
 	local life = math.Clamp(npc:Health() / math.max(1, npc:GetMaxHealth()), 0.2, 1)
 	if now >= (rag.NextThrash or 0) then
 		rag.NextThrash = now + math.Rand(0.12, 0.4) / (life * lucid)
 		Thrash(rag, life * lucid, math.random(1, 2))
 	end
-	-- while it's eating, the stabs do the screaming (Victim.Pierced)
 	if not eaten and now >= rag.NextCry then
 		rag.NextCry = now + math.Rand(1.8, 3.4) * (1 + 1.5 * rag.Sedation)
 		if lucid > 0.6 then
@@ -544,7 +496,6 @@ hook.Add("Think", "EvilCrawlerVictims", function()
 	end
 end)
 
--- Shooting the body hurts whoever's in it. The hidden NPC itself can't be hurt.
 hook.Add("EntityTakeDamage", "EvilCrawlerVictims", function(ent, dmg)
 	if ent.EvilCrawlerBody then return true end
 	if not Victim.Alive(ent) or dmg:IsDamageType(DMG_CRUSH) then return end
@@ -554,7 +505,6 @@ hook.Add("EntityTakeDamage", "EvilCrawlerVictims", function(ent, dmg)
 	end
 end)
 
--- Cleaning up the body takes the NPC with it, or kills the player in it.
 hook.Add("EntityRemoved", "EvilCrawlerVictims", function(ent)
 	local owner = ent.EvilCrawlerOwner
 	Victim.bodies[ent] = nil
@@ -567,8 +517,6 @@ hook.Add("EntityRemoved", "EvilCrawlerVictims", function(ent)
 	end
 end)
 
--- A player in a body who dies or respawns some other way leaves it behind as
--- just a body.
 local function Disown(ply)
 	local rag = ply.EvilCrawlerBody
 	ply.EvilCrawlerBody = nil
@@ -581,7 +529,6 @@ hook.Add("PostPlayerDeath", "EvilCrawlerVictims", Disown)
 hook.Add("PlayerSpawn", "EvilCrawlerVictims", function(ply)
 	if ply.EvilCrawlerGettingUp then return end
 	Disown(ply)
-	-- respawned out of a strike or a coil: whatever had them lets go
 	for _, crawler in ipairs(ents.FindByClass("evil_crawler")) do
 		if crawler:GetVictim() == ply then crawler:Release() end
 	end

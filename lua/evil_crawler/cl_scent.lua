@@ -1,11 +1,7 @@
--- Show scent trails: the scent the server sends (sv_scent.lua), drawn flat
--- on the ground as glowing marks, brighter where it's fresher, joined up
--- along each trail. The spot a crawler is heading for gets a ring and a
--- beam up out of the floor.
-local STALE = 1.5 -- drawn this long after the last update, so it clears when the setting goes off
-local LIFT = 1.5 -- off the ground, so it doesn't flicker into it
-local SIZE = { 10, 26 } -- a mark's size, faintest to freshest
-local FAINTEST = 0.2 -- how visible the faintest scent still is
+local STALE = 1.5
+local LIFT = 1.5
+local SIZE = { 10, 26 }
+local FAINTEST = 0.2
 local HEAD_SIZE = 44
 local HEAD_BEAM = 64
 local LINK_WIDTH = 2
@@ -36,7 +32,6 @@ net.Receive("EvilCrawlerScent", function()
 	received = RealTime()
 end)
 
--- The sprites are additive, so fading them means darkening them.
 local function Shade(base, k)
 	local a = Lerp(k, FAINTEST, 1)
 	return Color(base.r * a, base.g * a, base.b * a, 255 * a)

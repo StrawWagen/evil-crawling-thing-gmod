@@ -13,16 +13,14 @@ include("sv_attack.lua")
 local cv_probes = CreateConVar("evil_crawler_debug_probes", "0", 0, "Draw surface probes (needs developer 1)")
 
 local GRAVITY = 600
-local STICK_RATE = 8 -- how fast the body turns to match the surface under it
-local HOLD_RATE = 10 -- how fast it settles back to standing height
-local GRIP = 0.05 -- probe weight needed to hold on; below it, it falls
-local REGRIP = 0.2 -- probe weight needed to catch hold again while falling
-local PROBE_REACH = 2.2 -- probes feel this many body heights out
-local RUSH_SPEED = 250 -- past this speed it holds the surface proportionally harder, so it can't fly off
-local CROUCH = { 300, 1000, 0.35 } -- between these speeds it flattens toward the surface by up to this share
+local STICK_RATE = 8
+local HOLD_RATE = 10
+local GRIP = 0.05
+local REGRIP = 0.2
+local PROBE_REACH = 2.2
+local RUSH_SPEED = 250
+local CROUCH = { 300, 1000, 0.35 }
 
--- Probe directions in body space (x forward, y left, z up): straight down,
--- two cones fanning out below, and a horizontal ring.
 local DOWN, RING = { Vector(0, 0, -1) }, {}
 for i = 0, 7 do
 	local a = i / 8 * math.pi * 2
@@ -39,9 +37,6 @@ local function Rotate(v, axis, angle)
 	return v * c + axis:Cross(v) * s + axis * (axis:Dot(v) * (1 - c))
 end
 
--- Turns the body frame so up swings a fraction t of the way toward n.
--- Facing rides along on the same rotation, so walking straight into a wall
--- turns facing up the wall instead of collapsing.
 local function Turn(up, facing, n, t)
 	local axis = up:Cross(n)
 	local s, c = axis:Length(), up:Dot(n)
@@ -77,7 +72,7 @@ function ENT:Initialize()
 	local morph = EvilCrawler.Grow(self:GetSeed())
 	self.BodyHeight = morph.height
 	self:SetCollisionBounds(Vector(-12, -12, -12), Vector(12, 12, 12))
-	self:SetSaveValue("m_takedamage", 2) -- DAMAGE_YES, so blasts and blows reach OnTakeDamage
+	self:SetSaveValue("m_takedamage", 2)
 
 	local up = self.SpawnUp or Vector(0, 0, 1)
 	local facing = self:GetForward()
@@ -98,11 +93,6 @@ function ENT:Think()
 	return true
 end
 
--- Feels for nearby surfaces with a spread of rays and blends everything they
--- touch, nearer hits weighing more. Near a corner both faces get felt, so the
--- blended surface (and the body with it) rounds the corner instead of
--- snapping between faces. Returns the blended normal, a point on the blended
--- surface, and the total grip.
 function ENT:SenseSurface(pos, fwd, left, up, move)
 	local h = self.BodyHeight
 	local reach = h * PROBE_REACH
@@ -129,14 +119,11 @@ function ENT:SenseSurface(pos, fwd, left, up, move)
 		if probe(pos, world(d), reach, 1) then downHits = downHits + 1 end
 	end
 
-	-- walls around it, felt mostly in the direction it's going
 	for _, d in ipairs(RING) do
 		local dir = world(d)
 		probe(pos, dir, h * 1.5, math.max(0.25, dir:Dot(move)))
 	end
 
-	-- partly over an edge: reach in from beyond and below for the face it's
-	-- going over, so it can wrap around onto it
 	if downHits < #DOWN * 0.6 then
 		for _, depth in ipairs(WRAP_DEPTHS) do
 			local below = pos - up * (h * depth)
@@ -151,7 +138,6 @@ function ENT:SenseSurface(pos, fwd, left, up, move)
 	return normal:GetNormalized(), point / grip, grip
 end
 
--- Moves without passing through anything, sliding along what it hits.
 function ENT:SafeMove(from, to)
 	local tr = self:Trace(from, to)
 	if not tr.Hit then return to end
@@ -182,7 +168,6 @@ function ENT:Crawl(dt)
 			local to = target - pos
 			local flat = to - up * to:Dot(up)
 			local along = flat:Length()
-			-- puppeted at a point straight overhead: carry on until a wall turns it that way
 			if self.Puppeting and along < to:Length() * 0.3 then flat, along = fwd, h * 3 end
 			wish = flat:GetNormalized() * topSpeed * math.Clamp((along - 24) / (h * 1.5), 0, 1)
 		end

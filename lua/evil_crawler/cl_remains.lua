@@ -1,16 +1,10 @@
--- What's left of a body it's been eating. The server shrinks each mouthful
--- to nothing; here every bone of it is also folded into the mouth, wherever
--- the next mouthful is being held, or the mesh would stretch thin strips
--- between wherever its invisible bones dangle. Then this draws the open end
--- of what's left (a wet cap of meat, a splintered end of bone, ragged strings
--- of sinew) and lets it drip a while.
 EvilCrawler = EvilCrawler or {}
 local Flesh = EvilCrawler.Flesh
 local PARTS = EvilCrawler.PARTS
 local EATEN_VAR = EvilCrawler.EATEN_VAR
 
 local SCAN_INTERVAL = 0.5
-local DRIP_TIME = 25 -- a fresh stump drips this long
+local DRIP_TIME = 25
 local DRAW_DISTANCE = 2500
 local STRANDS = 5
 
@@ -18,10 +12,8 @@ local MEAT = Color(70, 6, 9)
 local SINEW = Color(120, 22, 24)
 local MARROW = Color(205, 190, 170)
 
-local remains = {} -- ragdoll -> { at = when the last mouthful went, part = which one, shapes = one per stump }
+local remains = {}
 
--- A stump's look, made once and kept: which way the bone and each strand of
--- sinew stick out, as offsets from the line of the body it's the end of.
 local function Shape(size)
 	local strands = {}
 	for i = 1, STRANDS do
@@ -34,14 +26,11 @@ local function Has(mask, part)
 	return bit.band(mask, bit.lshift(1, part - 1)) ~= 0
 end
 
--- Where a stump is, and the point on the body it carries on from.
 local function StumpAt(rag, stump)
 	local b, below = rag:LookupBone(stump[1]), rag:LookupBone(stump[2])
 	return b and rag:GetBonePosition(b), below and rag:GetBonePosition(below)
 end
 
--- Folds every eaten mouthful into the mouth: the bone it's holding the next
--- one by, or, once it's let go, wherever the mouthful itself was joined on.
 local function Fold(rag)
 	local mask = rag.EvilCrawlerMask
 	if not mask or mask == 0 then return end
@@ -75,7 +64,6 @@ local function Track(rag, mask)
 		rag:AddCallback("BuildBonePositions", Fold)
 	end
 
-	-- only the newest open end shows; the ones before it went in after it
 	local last
 	for i in ipairs(PARTS) do
 		if Has(mask, i) then last = i end
@@ -88,13 +76,11 @@ local function Track(rag, mask)
 	end
 end
 
--- the moment a mouthful goes, so it's never seen stretched
 hook.Add("EntityNetworkedVarChanged", "EvilCrawlerRemains", function(ent, name, _, mask)
 	if name == EATEN_VAR and mask and mask ~= 0 then Track(ent, mask) end
 end)
 
 timer.Create("EvilCrawlerRemains", SCAN_INTERVAL, 0, function()
-	-- bodies eaten before we were here to see it
 	for _, rag in ipairs(ents.FindByClass("prop_ragdoll")) do
 		local mask = rag:GetNW2Int(EATEN_VAR, 0)
 		if mask ~= 0 and mask ~= rag.EvilCrawlerMask then Track(rag, mask) end
@@ -131,7 +117,6 @@ local function Solid(c)
 end
 local MeatColor, SinewColor = Solid(MEAT), Solid(SINEW)
 local function BoneColor(f)
-	-- bloodied where it leaves the meat
 	local k = math.Clamp(f * 1.6, 0, 1)
 	return Lerp(k, MEAT.r, MARROW.r), Lerp(k, MEAT.g, MARROW.g), Lerp(k, MEAT.b, MARROW.b)
 end
@@ -142,7 +127,6 @@ local function DrawStump(rag, stump, size, shape)
 	local p, pp = StumpAt(rag, stump)
 	if not p or not pp then return end
 
-	-- the stump carries on the line of the body it's the end of
 	local d = p - pp
 	if d:LengthSqr() < 1e-4 then d = vector_up end
 	d:Normalize()

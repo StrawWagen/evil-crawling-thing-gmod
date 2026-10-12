@@ -1,6 +1,3 @@
--- Procedural flesh: lit tubes for limbs, rebuilt as dynamic meshes every
--- frame. Lighting is sampled once per frame as an ambient cube and applied
--- per vertex, since the material is unlit.
 EvilCrawler = EvilCrawler or {}
 local Flesh = {}
 EvilCrawler.Flesh = Flesh
@@ -61,9 +58,6 @@ end
 
 local px, py, pz, pf = {}, {}, {}, {}
 
--- A smooth tube through the joint chain `pts`. radiusAt(f, data) and
--- colorAt(f, data) shape it along its length, f running 0 at the root to 1
--- at the tip. `sub` is curve samples per segment.
 function Flesh.Tube(pts, sides, sub, radiusAt, colorAt, data)
 	local n = #pts
 	if n < 2 then return end
@@ -82,8 +76,6 @@ function Flesh.Tube(pts, sides, sub, radiusAt, colorAt, data)
 	count = count + 1
 	px[count], py[count], pz[count], pf[count] = pts[n].x, pts[n].y, pts[n].z, 1
 
-	-- rings around each sample, oriented by a parallel-transported frame so
-	-- the tube doesn't twist
 	local tr = Trig(sides)
 	local nx, ny, nz
 	for j = 1, count do

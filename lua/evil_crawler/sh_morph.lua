@@ -1,7 +1,5 @@
 EvilCrawler = EvilCrawler or {}
 
--- Park-Miller PRNG, so a seed grows the same creature on the server and every
--- client without touching the global math.random state.
 local function Rng(seed)
 	local s = seed % 2147483646 + 1
 	return function(a, b)
@@ -15,7 +13,6 @@ local function Int(rand, a, b)
 	return math.floor(rand(a, b + 1))
 end
 
--- Random point on a sphere of radius r, with z limited to [minZ, maxZ] (-1..1).
 local function OnSphere(rand, r, minZ, maxZ)
 	local yaw = math.rad(rand(0, 360))
 	local z = rand(minZ, maxZ)
@@ -23,7 +20,6 @@ local function OnSphere(rand, r, minZ, maxZ)
 	return Vector(math.cos(yaw) * flat * r, math.sin(yaw) * flat * r, z * r)
 end
 
--- Uneven segment lengths adding up to `total`.
 local function Segments(rand, count, total)
 	local lengths, sum = {}, 0
 	for i = 1, count do
@@ -36,8 +32,6 @@ local function Segments(rand, count, total)
 	return lengths
 end
 
--- Nothing but legs: long, thin, uneven, their roots tangled together at a
--- point with no body around it.
 function EvilCrawler.Grow(seed)
 	local rand = Rng(seed)
 	local creature = {
@@ -71,7 +65,6 @@ function EvilCrawler.Grow(seed)
 	end
 	creature.height = reach / count * 0.36
 
-	-- legs wait for the legs beside them to land before stepping
 	local gap = 360 / count * 1.6
 	for _, leg in ipairs(creature.legs) do
 		leg.neighbours = {}

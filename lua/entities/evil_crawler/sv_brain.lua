@@ -1,23 +1,3 @@
--- What the crawler wants. It knows players and NPCs four ways:
---   touch   anyone close enough, whatever they're doing
---   sight   anyone in plain view, out to a long way. Nothing's drawn to see
---           with, and it sees all round. Movement catches it, stillness
---           doesn't: what it half sees it freezes and watches, and once
---           it's sure it goes for them. Out of view, it goes to look.
---   tremor  players running on the ground with nothing solid in between
---   scent   the trails everyone leaves (sv_scent.lua), followed toward
---           fresher scent
--- Hungry, it goes for NPCs it can eat (sv_attack.lua) over players, and
--- follows NPC trails over theirs. Fed, it loses interest in NPC trails but
--- not in players. Fear draws it either way.
--- Hurt, it drops whatever it's holding and runs for somewhere out of the way
--- to lie low. It comes back out angrier: quicker, hungrier sooner, and
--- following whoever hurt it.
--- It moves in fits, like something small and quick: dead still, then a dart
--- faster than anyone can run, then still again. Each thought sets self.Goal
--- (a point to crawl toward) and self.Pace (a share of dart speed); Crawl
--- does the moving.
-
 local Scent = EvilCrawler.Scent
 
 local cv_puppet = CreateConVar("evil_crawler_puppet", "0", 0, "Crawlers follow their spawner's crosshair instead of thinking")
@@ -25,57 +5,53 @@ local cv_debug = CreateConVar("evil_crawler_debug_scent", "0", 0, "Draw scent tr
 local ai_ignoreplayers = GetConVar("ai_ignoreplayers")
 local ai_disabled = GetConVar("ai_disabled")
 
--- Left alone, players are nothing to it: not seen, felt, smelt or minded.
 function EvilCrawler.IgnoresPlayers()
 	return EvilCrawler.Setting("attack_players") == 0 or (ai_ignoreplayers and ai_ignoreplayers:GetBool())
 end
 
 local THINK_INTERVAL = 0.25
-local QUICK_INTERVAL = 0.1 -- while darting, or it overshoots everything
-local SNAP = 22 -- how hard it starts and stops
-local SNAGGED = { 120, 400 } -- a body dragging this far behind slows it to a crawl, to yank it free
+local QUICK_INTERVAL = 0.1
+local SNAP = 22
+local SNAGGED = { 120, 400 }
 local SNIFF_RADIUS = 400
-local SCENT_THRESHOLD = 0.12 -- faintest scent worth following
+local SCENT_THRESHOLD = 0.12
 local TOUCH_RANGE = 220
 local TREMOR_RANGE = 1000
-local TREMOR_SPEED = 150 -- players moving slower than this make no tremor
-local SIGHT_CLEAR = 500 -- seen this close, distance takes nothing off how plainly
-local SIGHT_STILL, SIGHT_RUN = 0.2, 400 -- how visible someone standing still is; at this speed, fully
+local TREMOR_SPEED = 150
+local SIGHT_CLEAR = 500
+local SIGHT_STILL, SIGHT_RUN = 0.2, 400
 local SIGHT_CROUCH = 0.5
-local SIGHT_LIT = 2 -- a lit flashlight or a gun going off makes someone this much plainer
+local SIGHT_LIT = 2
 local FIRED_TIME = 1
-local SIGHT_GAIN = 3 -- how fast it grows sure of someone in plain view, per second
-local SIGHT_FADE = 0.25 -- and how fast that wears off
-local NOTICE = 0.35 -- this sure, it freezes and watches; fully sure, it goes for them
-local LEAD = 0.6 -- seconds of their running it allows for when they drop out of view
-local REACHED = 72 -- distance along the surface at which a goal counts as reached
-local SKIP_AHEAD = 260 -- heads straight for trail nodes this close, skipping the ones between
+local SIGHT_GAIN = 3
+local SIGHT_FADE = 0.25
+local NOTICE = 0.35
+local LEAD = 0.6
+local REACHED = 72
+local SKIP_AHEAD = 260
 local SEARCH_TIME = 8
 local SEARCH_SPREAD = 300
 local STUCK_TIME = 2.5
-local HUNGRY_PULL = 2 -- how much more an NPC's trail draws it when it's hungry
-local FED_PULL = 0.3 -- and when it isn't
+local HUNGRY_PULL = 2
+local FED_PULL = 0.3
 local FEAR_PULL = 1.5
-local GRUDGE_PULL = 2.5 -- how much more the trail of whoever hurt it draws it
-local FLEE_TIME = 8 -- runs this long at most before hiding wherever it's got to
-local HIDE_SPREAD = { 2 / 3, 4 / 3 } -- share of the hide time setting it lies low for
+local GRUDGE_PULL = 2.5
+local FLEE_TIME = 8
+local HIDE_SPREAD = { 2 / 3, 4 / 3 }
 local ANGER_MAX = 3
-local ANGER_FADE = 180 -- seconds for each step of anger to wear off
-local ANGER_PACE = 0.15 -- each step of anger makes it this much quicker on someone's trail
+local ANGER_FADE = 180
+local ANGER_PACE = 0.15
 local PAIN_SOUNDS = { "npc/barnacle/barnacle_die1.wav", "npc/barnacle/barnacle_die2.wav" }
 local PAIN_HIT_SOUND = "physics/flesh/flesh_squishy_impact_hard2.wav"
-local SHOT_RADIUS = 0.9 -- body heights round the tangle that a bullet counts as hitting the legs
+local SHOT_RADIUS = 0.9
 
--- How it moves in each state: `pace` is a share of dart speed, held for `go`
--- seconds at a time with dead stillness for `stop` seconds between. It
--- freezes for `freeze` seconds the moment it enters a state, then goes.
 local RHYTHM = {
 	roam = { pace = 0.09, go = { 3, 8 }, stop = { 1, 4 } },
 	search = { pace = 0.55, go = { 0.3, 0.8 }, stop = { 0.5, 1.6 } },
 	track = { pace = 0.7, go = { 0.4, 1.1 }, stop = { 0.3, 1.2 } },
 	hunt = { pace = 1, go = { 0.6, 1.5 }, stop = { 0.08, 0.3 }, freeze = { 0.3, 0.7 } },
 	strike = { pace = 0 },
-	drag = { pace = 1.15 }, -- bolts with the body, flat out, never stopping
+	drag = { pace = 1.15 },
 	feed = { pace = 0 },
 	flee = { pace = 1.2 },
 	hide = { pace = 0 },
@@ -102,8 +78,6 @@ local function Perceivable(ent)
 		and ent:GetObserverMode() == OBS_MODE_NONE
 end
 
--- Distance to a point measured along the surface the body is on, so a
--- crawler on the ceiling counts as having reached a point on the floor below.
 function ENT:SurfaceDistance(point)
 	local to = point - self:GetPos()
 	return (to - self.BodyUp * to:Dot(self.BodyUp)):Length()
@@ -124,8 +98,6 @@ function ENT:Feels(ent, pos)
 	return false
 end
 
--- How plainly it can see `ent` from `pos` right now, 0 when it can't.
--- Movement shows, closeness shows, and a light or a gunshot gives anyone away.
 function ENT:Visibility(ent, pos, now)
 	if not Perceivable(ent) or (ent:IsPlayer() and not self:Wants(ent)) then return 0 end
 	local range = EvilCrawler.Setting("sight_range")
@@ -144,9 +116,6 @@ function ENT:Visibility(ent, pos, now)
 	return v
 end
 
--- Looks round at every player, and every NPC it could eat if it's hungry,
--- and grows surer of whoever's in view. Once it's sure of someone it doesn't
--- lose them while they're in view, however still they keep.
 function ENT:Look(now)
 	local pos = self:GetPos()
 	local dt = math.min(now - (self.LastLook or now), THINK_INTERVAL * 2)
@@ -187,19 +156,15 @@ function ENT:Look(now)
 	end
 end
 
--- Whoever in view it's half sure of, the surest first.
 function ENT:Glimpse()
 	local best, bestSure
 	for ent in pairs(self.InView) do
-		-- someone barely visible can be in view with no awareness of them left
 		local sure = self.Awareness[ent] or 0
 		if sure >= NOTICE and not self.Spotted[ent] and (not best or sure > bestSure) then best, bestSure = ent, sure end
 	end
 	return best
 end
 
--- Where someone it's lost was heading: a little way on from where it last
--- had them, short of any wall.
 function ENT:Lead(ent)
 	if not ent:IsPlayer() then return ent:GetPos() end
 	local from = ent:GetPos() + Vector(0, 0, 32)
@@ -207,8 +172,6 @@ function ENT:Lead(ent)
 	return tr.HitPos + tr.HitNormal * 16 - Vector(0, 0, 32)
 end
 
--- What it can sense directly, by touch, sight or tremor: the nearest NPC it could
--- eat if it's hungry, otherwise the nearest player.
 function ENT:Sense()
 	local pos = self:GetPos()
 	local meal, mealDist, person, personDist
@@ -230,7 +193,6 @@ function ENT:Sense()
 	return person
 end
 
--- How strongly a bit of scent draws it.
 function ENT:Appeal(node, now)
 	local owner = node.trail.owner
 	if not node.npc and not (IsValid(owner) and self:Wants(owner)) then return 0 end
@@ -241,8 +203,6 @@ function ENT:Appeal(node, now)
 	return Scent.Intensity(node, now) * w
 end
 
--- Walks a trail toward fresher scent, past every node already reached or
--- close enough to head for directly.
 function ENT:FollowTrail(node)
 	local pos = self:GetPos()
 	while node.next and not node.next.dead do
@@ -255,7 +215,6 @@ function ENT:FollowTrail(node)
 	return node
 end
 
--- A random spot around `center`, flattened onto the surface the body is on.
 function ENT:Around(center, spread)
 	local offset = VectorRand() * spread
 	return center + offset - self.BodyUp * offset:Dot(self.BodyUp)
@@ -289,7 +248,6 @@ function ENT:Ponder()
 	if self.Puppeting then
 		self.Goal = self:PuppetGoal()
 		self.Pace = 0.4
-		-- steer it into an NPC to test the kill
 		for npc in pairs(Scent.npcs) do
 			if IsValid(npc) and self:CanAttack(npc) then
 				self:StartStrike(npc)
@@ -299,7 +257,6 @@ function ENT:Ponder()
 		return
 	end
 
-	-- 1. direct contact beats everything
 	self:Look(now)
 	local prey = self:Sense()
 	self:SetPrey(prey or NULL)
@@ -320,8 +277,6 @@ function ENT:Ponder()
 		self.SearchUntil = now + SEARCH_TIME
 	end
 
-	-- 2. something's caught its eye: it goes dead still and watches until
-	-- it's sure, and if they slip out of view or keep still, it goes to look
 	local glimpse = self:Glimpse()
 	if glimpse then
 		self:SetPrey(glimpse)
@@ -336,7 +291,6 @@ function ENT:Ponder()
 		self.SearchUntil = now + SEARCH_TIME
 	end
 
-	-- 3. a scent trail: stay on the current one unless a much fresher one crosses it
 	local node = self.Trail
 	if node and (node.dead or self:Appeal(node, now) < SCENT_THRESHOLD * 0.5) then node = nil end
 	self.WeighScent = self.WeighScent or function(n, t) return self:Appeal(n, t) end
@@ -353,20 +307,17 @@ function ENT:Ponder()
 		if node.next or not self:Reached(node.pos) then
 			self.Goal = node.pos
 		elseif not self.Goal or self:Reached(self.Goal) or self.Goal:Distance(node.pos) > 200 then
-			-- end of the trail and nobody here: they're close, keep feeling around
 			self.Goal = self:Around(node.pos, 150)
 		end
 		return
 	end
 	self.Trail = nil
 
-	-- 4. lost them: comb the area where they were last felt
 	if self.State == "search" and now < self.SearchUntil then
 		if self:Reached(self.Goal) then self.Goal = self:Around(self.LastKnown, SEARCH_SPREAD) end
 		return
 	end
 
-	-- 5. nothing: wander, holding a heading for a while
 	if self.State ~= "roam" or now > (self.NextVeer or 0) then
 		self.Heading = VectorRand():GetNormalized()
 		self.NextVeer = now + math.Rand(4, 9)
@@ -375,8 +326,6 @@ function ENT:Ponder()
 	self.Goal = pos + self.Heading * 1000
 end
 
--- Not getting any closer: on a ceiling it lets go and drops, anywhere else
--- it veers off sideways for a moment.
 function ENT:CheckProgress(now)
 	if not self.Goal then return end
 
@@ -385,7 +334,7 @@ function ENT:CheckProgress(now)
 	end
 
 	if self.Still then
-		self.ProgressTime = now -- holding still isn't being stuck
+		self.ProgressTime = now
 		return
 	end
 
@@ -402,15 +351,11 @@ function ENT:CheckProgress(now)
 	end
 end
 
--- Darts off sideways for a moment.
 function ENT:Veer(now, time)
 	self.Detour = (self:Around(self:GetPos(), 1) - self:GetPos()):GetNormalized() * 400
 	self.DetourUntil = now + time
 end
 
--- Right over someone and still out of reach (they're out from the wall it's
--- on, under the ceiling, up on something): drop on them if they're below it,
--- otherwise go round another way. Never sits there.
 function ENT:Overhead(prey, now)
 	if not self:Reached(prey:GetPos()) then
 		self.OverSince = nil
@@ -428,7 +373,6 @@ function ENT:Overhead(prey, now)
 	end
 end
 
--- Starts and stops the fits: a dart, then still, then another.
 function ENT:Fits(now)
 	local r = RHYTHM[self.State]
 	if self.Puppeting or not (r and r.go) then
@@ -441,8 +385,6 @@ function ENT:Fits(now)
 	self.FitUntil = now + math.Rand(span[1], span[2])
 end
 
--- With ai_disabled it lets go of whatever it has and holds still where it
--- clings, thinking nothing, until it's turned back on.
 function ENT:Switched()
 	if not (ai_disabled and ai_disabled:GetBool()) then return false end
 	if self:GetAct() ~= EvilCrawler.ACT_NONE then self:Release() end
@@ -452,8 +394,6 @@ function ENT:Switched()
 	return true
 end
 
--- Where to crawl right now, how fast, and how sharply to get going: the
--- goal, unless it's detouring or holding still.
 function ENT:Steer()
 	if self.Off then return nil, 0, SNAP end
 	local now = CurTime()
@@ -487,7 +427,6 @@ function ENT:OnTakeDamage(dmg)
 	self:Hurt(dmg:GetAttacker(), dmg:GetDamagePosition())
 end
 
--- Shot, stabbed, blown up: it lets go of whatever it has and runs.
 function ENT:Hurt(attacker, from)
 	local now = CurTime()
 
@@ -511,9 +450,6 @@ function ENT:Hurt(attacker, from)
 	self.DetourUntil = nil
 end
 
--- Where a shot from `src` along `dir` first meets the legs, and how far
--- along, if it does before `range` and nothing else is in the way. The legs
--- are only drawn on clients, so the server counts a ball round the tangle.
 function ENT:ShotHits(src, dir, range, shooter)
 	local center = self:GetPos()
 	local r = self.BodyHeight * SHOT_RADIUS
@@ -529,9 +465,8 @@ function ENT:ShotHits(src, dir, range, shooter)
 	return hit, enter
 end
 
--- Bullets are caught by hand: the legs have no collision of their own.
 hook.Add("EntityFireBullets", "EvilCrawlerShot", function(shooter, data)
-	shooter.EvilCrawlerFiredAt = CurTime() -- the flash gives them away
+	shooter.EvilCrawlerFiredAt = CurTime()
 	local dir = data.Dir:GetNormalized()
 	local range = data.Distance or 56756
 	local filter = { shooter, data.IgnoreEntity }
@@ -552,12 +487,10 @@ hook.Add("EntityFireBullets", "EvilCrawlerShot", function(shooter, data)
 	local attacker = IsValid(data.Attacker) and data.Attacker or shooter
 	struck:Hurt(attacker, hit)
 
-	-- the bullet stops in the legs
 	data.Distance = nearest
 	return true
 end)
 
--- Running, then hiding until it's sure. True while it wants nothing else.
 function ENT:LyingLow(now)
 	if self.State == "flee" then
 		if self.Goal and not self:Reached(self.Goal) and now < self.FleeUntil then return true end
@@ -573,7 +506,6 @@ function ENT:LyingLow(now)
 	return false
 end
 
--- Someone's hurt it: it's angrier for a while, and it remembers who.
 function ENT:Enrage(by, now)
 	if IsValid(by) and by ~= self and not by:IsWorld() then self.Grudge = by end
 	self.Anger = math.min(ANGER_MAX, (self.Anger or 0) + 1)
@@ -588,7 +520,6 @@ function ENT:Cool(now)
 	end
 end
 
--- Debug: crawl to wherever the spawner is looking.
 function ENT:PuppetGoal()
 	local ply = self.Master
 	if not IsValid(ply) then return end

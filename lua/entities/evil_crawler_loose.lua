@@ -1,6 +1,3 @@
--- A crawler let loose somewhere on the map, out of every player's sight, so
--- whoever spawned it doesn't know where it is. It clings to a floor, wall or
--- ceiling picked at random.
 AddCSLuaFile()
 
 ENT.Type = "anim"
@@ -12,16 +9,13 @@ ENT.Spawnable = true
 if CLIENT then return end
 
 local TRIES = 60
-local FAR = 1500 -- takes the first unseen spot at least this far from everyone
-local REACH = 600 -- how far from a point on the map it looks for something to cling to
-local HOPS = 6 -- with no navmesh, rays bounced from the spawner this many times feel out the map
+local FAR = 1500
+local REACH = 600
+local HOPS = 6
 local HOP_LENGTH = 4000
 local LIFT = 24
 local BOUNDS = Vector(12, 12, 12)
 
--- An endless supply of random points inside the map: nav areas where there
--- are any, otherwise a walk of rays bounced off the world from `from`, which
--- drifts further out the longer it goes.
 local function Points(from)
 	local areas = navmesh.GetAllNavAreas()
 	if #areas > 0 then
@@ -37,10 +31,6 @@ local function Points(from)
 	end
 end
 
--- Something near `point` to cling to: whatever's that way in a random
--- direction, so it's as likely to be up a wall or on the ceiling as on the
--- floor, and the floor if that comes to nothing. Returns where the body goes
--- and the surface's normal.
 local function Cling(point, height)
 	for _, dir in ipairs({ VectorRand():GetNormalized(), -vector_up }) do
 		local tr = util.TraceLine({ start = point, endpos = point + dir * REACH, mask = MASK_SOLID })
@@ -55,7 +45,6 @@ local function Cling(point, height)
 	end
 end
 
--- Whether any living player can see `pos`, and how far the nearest one is.
 local function Exposure(pos)
 	local seen, nearest = false, math.huge
 	for _, ply in ipairs(player.GetAll()) do
@@ -68,8 +57,6 @@ local function Exposure(pos)
 	return seen, nearest
 end
 
--- A random spot nobody can see and nobody's near. Failing that, the least
--- exposed one it found.
 local function Somewhere(from, height)
 	local points = Points(from)
 	local best, bestUp, bestScore
@@ -105,8 +92,6 @@ function ENT:SpawnFunction(ply, tr, class)
 	return LetLoose(ply, ply:EyePos())
 end
 
--- Made some other way than the spawn menu (ent_create, say): it lets one
--- loose from wherever it was made, and goes.
 function ENT:Initialize()
 	LetLoose(nil, self:GetPos())
 	SafeRemoveEntityDelayed(self, 0)

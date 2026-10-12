@@ -5,16 +5,16 @@ include("evil_crawler/cl_struggle.lua")
 
 local cv_debug = CreateClientConVar("evil_crawler_debug", "0", false, false, "Draw foot targets")
 
-language.Add("evil_crawler", "Evil Crawler") -- the kill feed
+language.Add("evil_crawler", "Evil Crawler")
 
-local LEAD_TIME = 0.18 -- feet aim this far ahead along the body's velocity
-local SNAP_GAP = 0.5 -- seconds without an update before limbs are re-planted from scratch
-local MAX_AIRBORNE = 0.4 -- share of legs allowed mid-step at once
-local SKITTER = { 400, 1000, 0.6 } -- between these speeds steps quicken in proportion, go low, and up to this share of legs is up at once
-local MAX_LEAD = 0.9 -- feet never aim more than this many body heights ahead
-local FOOT_SOUND_GAP = 0.03 -- a skitter is a clatter, not a hundred sounds at once
-local MOOD_AGITATION = { [0] = 0, [1] = 0.45, [2] = 1 } -- calm, on a scent, in contact
-local THREAT_ARC = 35 -- legs pointing within this many degrees of a player rear up at them
+local LEAD_TIME = 0.18
+local SNAP_GAP = 0.5
+local MAX_AIRBORNE = 0.4
+local SKITTER = { 400, 1000, 0.6 }
+local MAX_LEAD = 0.9
+local FOOT_SOUND_GAP = 0.03
+local MOOD_AGITATION = { [0] = 0, [1] = 0.45, [2] = 1 }
+local THREAT_ARC = 35
 local IK_ITERATIONS = 3
 local LOD_DISTANCE = 1500
 
@@ -27,13 +27,12 @@ local PULL_TIME = EvilCrawler.PULL_TIME
 local BITE_JAB, BITE_IN, BITE_RIP = EvilCrawler.BITE_JAB, EvilCrawler.BITE_IN, EvilCrawler.BITE_RIP
 local LUMP_TIME = EvilCrawler.LUMP_TIME
 local BiteCycle, BiteBone, CurrentPart = EvilCrawler.BiteCycle, EvilCrawler.BiteBone, EvilCrawler.CurrentPart
-local STAB_DEPTH = 10 -- how far into the body a stab sinks
-local SWALLOW_GAP = { 1.2, 2.2 } -- seconds between swallows down the holding leg
--- legs put to work per act; the first one holds the body while dragging and feeding
+local STAB_DEPTH = 10
+local SWALLOW_GAP = { 1.2, 2.2 }
 local ROLE_COUNT = { [ACT_STRIKE] = 1, [ACT_DRAG] = 1, [ACT_FEED] = 1 + EvilCrawler.FEEDERS, [ACT_GRAPPLE] = 1 }
-local CURL = 0.25 -- stunned, legs draw in to this share of where they were
-local COIL_POINTS = 26 -- a coiled leg is drawn through this many points
-local REACH_POINTS = 8 -- of which this many reach from the root to the victim
+local CURL = 0.25
+local COIL_POINTS = 26
+local REACH_POINTS = 8
 
 local FOOT_SOUNDS = {
 	"npc/antlion/foot1.wav",
@@ -82,8 +81,6 @@ local function Smooth(t)
 	return t * t * (3 - 2 * t)
 end
 
--- Lays the chain out as an arch from root to target bulging along `bow`,
--- shaken by noise and twitches, then lets FABRIK pull it to exact lengths.
 local function Pose(st, limb, root, target, bow, t, shake)
 	local pts = st.points
 	local n = limb.segments + 1
@@ -97,7 +94,6 @@ local function Pose(st, limb, root, target, bow, t, shake)
 	SolveChain(pts, limb.lengths, root, target, IK_ITERATIONS)
 end
 
--- Smooth curve through a joint chain, resampled to m points.
 local function Resample(pts, m, out)
 	local n = #pts
 	for i = 1, m do
@@ -114,25 +110,21 @@ local function Bone(ent, name)
 	return bone and ent:GetBonePosition(bone)
 end
 
--- A player's own bones aren't set up while they're in first person, so
--- players are measured from their feet.
 local PLAYER_CHEST = Vector(0, 0, 46)
-local PLAYER_COIL = { Vector(0, 0, 12), Vector(0, 0, 58), 11 } -- round them from shins to chin, arms and all
+local PLAYER_COIL = { Vector(0, 0, 12), Vector(0, 0, 58), 11 }
 
 local function Chest(ent)
 	if ent:IsPlayer() then return ent:GetPos() + PLAYER_CHEST end
 	return Bone(ent, "ValveBiped.Bip01_Spine2") or ent:WorldSpaceCenter()
 end
 
--- Picks the legs nearest the victim for the job at hand. The leg that struck
--- keeps hold of the body it struck.
 function ENT:AssignRoles(morph, act, victim, pos, fwd, left)
 	local roles = {}
 	if act == ACT_NONE or not IsValid(victim) then return roles end
 
 	local d = victim:WorldSpaceCenter() - pos
 	local yaw = math.deg(math.atan2(d:Dot(left), d:Dot(fwd)))
-	local order = { unpack(morph.legs) } -- the legs themselves, not copies
+	local order = { unpack(morph.legs) }
 	table.sort(order, function(a, b)
 		return math.abs(math.AngleDifference(a.angle, yaw)) < math.abs(math.AngleDifference(b.angle, yaw))
 	end)
@@ -150,17 +142,11 @@ function ENT:AssignRoles(morph, act, victim, pos, fwd, left)
 	return roles
 end
 
--- Where feeding leg k is during its bite cycle: rearing over the next part
--- of the body, trembling, then stabbing down into it, worrying at it, and
--- tearing back out. Also says which bite it's on and how far through.
--- `bites` remembers which bone each bite went for, so a leg mid-bite keeps
--- at it when the part it's on is finished.
 local function BitePose(victim, seed, k, t, up, now, limb, bites)
 	local n, u = BiteCycle(k, t)
 	local center = victim:WorldSpaceCenter()
 	local part = CurrentPart(victim)
 
-	-- the legs come at the same part from all round it
 	local function spot(m)
 		local name = bites[m]
 		if not name then
@@ -173,7 +159,7 @@ local function BitePose(victim, seed, k, t, up, now, limb, bites)
 		side = side:LengthSqr() > 1 and side:GetNormalized() or up:Angle():Right()
 		local a = k * math.pi * 0.5 + m * 0.6
 		side = side * math.cos(a) + up:Cross(side) * math.sin(a)
-		return p + side * 3, p + up * 45 + side * 12, side -- the bite, where the leg tears out to, and which side it's on
+		return p + side * 3, p + up * 45 + side * 12, side
 	end
 
 	local bite, out, side = spot(n)
@@ -195,9 +181,6 @@ local function BitePose(victim, seed, k, t, up, now, limb, bites)
 	return LerpVector(1 - (1 - f) ^ 3, deep, out), n, u
 end
 
--- Where the holding leg coils on the body: round the torso, or once it's
--- being eaten, round what's left of it from the mouth down, as an axis to
--- wrap round and a radius.
 local function GripAxis(body)
 	if body:IsPlayer() then
 		local feet = body:GetPos()
@@ -216,8 +199,6 @@ local function GripAxis(body)
 	return c - vector_up * 14, c + vector_up * 14, 9
 end
 
--- A leg wrapped round the body: an arch from the root to the near end of the
--- axis, then a helix climbing to the far end over WRAP_TIME.
 local function Coil(st, leg, role, root, a, b, r, bulge, t)
 	if root:DistToSqr(b) < root:DistToSqr(a) then a, b = b, a end
 	local axis = b - a
@@ -252,9 +233,6 @@ local function Coil(st, leg, role, root, a, b, r, bulge, t)
 	end
 end
 
--- Where a foot should land: whatever is between root and rest spot (a wall
--- ahead), else the ground under the rest spot, else the face of an edge the
--- body is hanging over. Falls back to a dangling pose.
 function ENT:FootTarget(root, rest, up)
 	local h = self.BodyHeight
 
@@ -301,17 +279,14 @@ function ENT:UpdateLimbs()
 	self.LastPos = pos
 	local speed = self.SmoothVel:Length()
 
-	-- worked up by what the server-side brain is doing
 	local prey = self:GetPrey()
 	local feel = IsValid(prey) and prey:EyePos()
-	if feel then self.LastFeel = feel end -- so reared legs ease back down after losing them
+	if feel then self.LastFeel = feel end
 	self.Agitation = math.Approach(self.Agitation, MOOD_AGITATION[self:GetMood()] or 0, dt * 0.8)
 	local agit = self.Agitation
 
 	local act, victim, actStart = self:GetAct(), self:GetVictim(), self:GetActStart()
 
-	-- the tangle keeps turning over on itself, whichever way it's heading,
-	-- except while its legs are busy with a victim
 	if act == ACT_NONE then
 		self.Churn = self.Churn + dt * morph.churn * (1 + math.sin(now * 0.3 + morph.phase)) * (1 + 2 * agit)
 	end
@@ -353,7 +328,7 @@ function ENT:UpdateLimbs()
 			st = { points = {}, twitch = Vector(), raise = 0, wrap = 0, lumps = {}, blood = 0 }
 			self.LimbState[limb] = st
 		end
-		st.lumps, st.blood = st.lumps or {}, st.blood or 0 -- survives a lua refresh mid-game
+		st.lumps, st.blood = st.lumps or {}, st.blood or 0
 
 		st.twitch = st.twitch * math.exp(-dt * 7)
 		if math.random() < dt * twitchRate then
@@ -371,9 +346,6 @@ function ENT:UpdateLimbs()
 		st.target, st.grounded = target, grounded
 		st.foot = st.foot or target
 
-		-- legs put to work on the victim are done walking: they drop out of
-		-- the gait until they let go, then step back in from wherever they are.
-		-- The feeding legs wait for the body to be hauled in first.
 		local role = self.Roles[limb]
 		if role and (not IsValid(victim) or (act == ACT_FEED and role.index > 1 and now - actStart < PULL_TIME)) then
 			role = nil
@@ -387,9 +359,7 @@ function ENT:UpdateLimbs()
 			and math.abs(math.AngleDifference(limb.angle, threatYaw)) < THREAT_ARC
 		st.raise = math.Approach(st.raise, threatened and 1 or 0, dt * 2.5)
 
-		if role then
-			-- busy with the victim
-		elseif st.stepping then
+		if st.stepping then
 			st.t = st.t + dt / (limb.stepTime * hurry)
 			if st.t >= 1 then
 				st.stepping = false
@@ -401,16 +371,16 @@ function ENT:UpdateLimbs()
 					sound.Play(snd, target, 65 + 12 * loud, limb.pitch + math.random(-10, 10) + 15 * loud, 0.35 + 0.4 * loud)
 				end
 			end
-		elseif st.raise > 0 then
-			-- rearing: hold the planted spot to come back down onto
-		elseif not grounded then
-			st.foot = LerpVector(math.min(1, dt * 6), st.foot, target)
-		else
-			local drift = st.foot:Distance(target)
-			local overreach = st.foot:Distance(root) > limb.length * 0.97
-			if overreach or (drift > limb.stepDistance and airborne < maxAirborne and self:NeighboursPlanted(limb)) then
-				st.stepping, st.t, st.from = true, 0, st.foot
-				airborne = airborne + 1
+		elseif not role and st.raise == 0 then
+			if not grounded then
+				st.foot = LerpVector(math.min(1, dt * 6), st.foot, target)
+			else
+				local drift = st.foot:Distance(target)
+				local overreach = st.foot:Distance(root) > limb.length * 0.97
+				if overreach or (drift > limb.stepDistance and airborne < maxAirborne and self:NeighboursPlanted(limb)) then
+					st.stepping, st.t, st.from = true, 0, st.foot
+					airborne = airborne + 1
+				end
 			end
 		end
 
@@ -425,8 +395,6 @@ function ENT:UpdateLimbs()
 			foot = LerpVector(Smooth(st.raise), foot, aim)
 		end
 
-		-- stunned: every leg snatched in tight under it, shuddering, then
-		-- slowly letting go
 		if act == ACT_STUN then
 			local t = now - actStart
 			local k = Smooth(math.Clamp(t / 0.12, 0, 1)) * Smooth(math.Clamp((STUN_TIME - t) / 0.8, 0, 1))
@@ -435,11 +403,9 @@ function ENT:UpdateLimbs()
 			foot = LerpVector(k, foot, curled)
 		end
 
-		-- legs put to work: striking, holding the body, or picking at it
 		local holding = role and (act == ACT_DRAG or act == ACT_FEED or act == ACT_GRAPPLE) and role.index == 1
 		if role then
 			if act == ACT_STRIKE then
-				-- rear up and back from the victim, trembling, then whip through it
 				local t = now - actStart
 				local chest = Chest(victim)
 				local away = root - chest
@@ -459,7 +425,6 @@ function ENT:UpdateLimbs()
 				local bite, n, u = BitePose(victim, self:GetSeed(), role.index - 1, now - actStart - PULL_TIME, up, now, limb, st.bites)
 				st.work = math.Approach(st.work or 0, 1, dt * 3)
 				foot = LerpVector(Smooth(st.work), foot, bite)
-				-- blood on the point once it's been in, and a piece going up the leg each tear
 				local stage = u < BITE_IN and 0 or u < BITE_RIP and 1 or 2
 				if st.biteN == n and st.biteStage ~= stage then
 					if stage == 1 then st.blood = 1 end
@@ -470,7 +435,6 @@ function ENT:UpdateLimbs()
 		end
 		if not (role and act == ACT_FEED) then st.work, st.bites = 0, nil end
 
-		-- the holding leg swallows too, every so often
 		if act == ACT_FEED and role and role.index == 1 and now - actStart > PULL_TIME then
 			if now >= (st.nextSwallow or 0) then
 				if st.nextSwallow then st.lumps[#st.lumps + 1] = now end
@@ -494,11 +458,8 @@ function ENT:UpdateLimbs()
 	end
 end
 
--- The leg being drawn: what it's swallowing, and how bloody it is.
 local drawing, drawNow
 
--- Thick at the root, knuckled at each joint, tapering to a hooked point,
--- swelling where a swallowed piece is working its way up to the root.
 local function LimbRadius(f, limb)
 	local r = limb.width * (1 - 0.9 * f ^ 1.3)
 	for k = 1, limb.segments - 1 do
@@ -537,14 +498,12 @@ function ENT:Draw()
 		local st = self.LimbState[limb]
 		drawing = st
 		if st.wrap > 0 and st.coil then
-			-- blend between the walking pose and the coil
 			local pts = Resample(st.points, COIL_POINTS, st.display or {})
 			st.display = pts
 			local b = Smooth(st.wrap)
 			for i = 1, COIL_POINTS do pts[i] = LerpVector(b, pts[i], st.coil[i]) end
 			Flesh.Tube(pts, sides, 1, LimbRadius, LimbColor, limb)
 		else
-			-- finer when something's going up it, so the lump travels smoothly
 			Flesh.Tube(st.points, sides, st.lumps[1] and sub * 2 or sub, LimbRadius, LimbColor, limb)
 		end
 	end
