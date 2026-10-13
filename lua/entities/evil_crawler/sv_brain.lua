@@ -44,7 +44,7 @@ local ANGER_PACE = 0.15
 local PAIN_SOUNDS = { "npc/barnacle/barnacle_die1.wav", "npc/barnacle/barnacle_die2.wav" }
 local PAIN_HIT_SOUND = "physics/flesh/flesh_squishy_impact_hard2.wav"
 local SHOT_RADIUS = 0.9
-local RAGE_WINDOW = 10
+local RAGE_WINDOW = 30
 local RAGE_REACH = 110
 local RAGE_SOUND = "ambient/fire/gascan_ignite1.wav"
 local RAGE_LOOP = "ambient/fire/fire_med_loop1.wav"
@@ -410,7 +410,7 @@ function ENT:Steer()
 		if cv_debug:GetBool() and self.Goal then
 			local c = STATE_COLOR[self.State] or color_white
 			debugoverlay.Line(self:GetPos(), self.Goal, THINK_INTERVAL, c, true)
-			debugoverlay.Text(self:GetPos() + self.BodyUp * 40, self.State or "puppet", THINK_INTERVAL)
+			debugoverlay.Text(self:GetPos() + self.BodyUp * 40, (self.State or "puppet") .. " " .. #(self.Hits or {}), THINK_INTERVAL)
 		end
 	end
 
