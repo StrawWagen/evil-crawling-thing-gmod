@@ -1,7 +1,7 @@
 local Victim = EvilCrawler.Victim
 local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
 	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
-local ACT_GRAPPLE, ACT_STUN = EvilCrawler.ACT_GRAPPLE, EvilCrawler.ACT_STUN
+local ACT_GRAPPLE, ACT_STUN, ACT_SEAR = EvilCrawler.ACT_GRAPPLE, EvilCrawler.ACT_STUN, EvilCrawler.ACT_SEAR
 local HELD_VAR, FREE_VAR = EvilCrawler.HELD_VAR, EvilCrawler.FREE_VAR
 
 local IMPACT_TIME = EvilCrawler.STRIKE_WINDUP + EvilCrawler.STRIKE_LUNGE
@@ -70,6 +70,8 @@ local GULP_SOUNDS = { "npc/barnacle/barnacle_gulp1.wav", "npc/barnacle/barnacle_
 local NIP_SOUNDS = { "physics/flesh/flesh_impact_bullet2.wav", "physics/flesh/flesh_impact_bullet4.wav" }
 local STUN_SOUNDS = { "npc/barnacle/barnacle_die1.wav", "npc/barnacle/barnacle_die2.wav" }
 local STUN_CRACK = "physics/flesh/flesh_squishy_impact_hard2.wav"
+local SEAR_SOUNDS = { "weapons/physcannon/energy_disintegrate4.wav", "weapons/physcannon/energy_disintegrate5.wav" }
+local SEAR_GRAB = "ambient/fire/ignite.wav"
 local SIDES = { Vector(1, 0, 0), Vector(-1, 0, 0), Vector(0, 1, 0), Vector(0, -1, 0) }
 
 function ENT:IsEdible(ent)
@@ -111,6 +113,45 @@ function ENT:StartStrike(npc)
 	self:SetState("strike")
 	self.Lunged = false
 	self.DetourUntil = nil
+end
+
+function ENT:Sear(victim)
+	victim.EvilCrawlerVictim = self
+	sound.Play(SEAR_GRAB, victim:WorldSpaceCenter(), 80, math.random(90, 110))
+	self:SetPrey(NULL)
+	self:SetVictim(victim)
+	self:SetAct(ACT_SEAR)
+	self:SetActStart(CurTime())
+	self.Goal = nil
+end
+
+local function Dissolve(ent)
+	local dissolver = ents.Create("env_entity_dissolver")
+	if ent:GetName() == "" then ent:SetName("evil_crawler_sear" .. ent:EntIndex()) end
+	dissolver:SetKeyValue("dissolvetype", "0")
+	dissolver:Spawn()
+	dissolver:Fire("Dissolve", ent:GetName())
+	dissolver:Fire("Kill", "", 0.1)
+end
+
+function ENT:Incinerate(victim)
+	self:Release()
+	victim.EvilCrawlerVictim = nil
+	local center = victim:WorldSpaceCenter()
+
+	local fx = EffectData()
+	fx:SetOrigin(center)
+	util.Effect("cball_explode", fx)
+	sound.Play(SEAR_SOUNDS[math.random(#SEAR_SOUNDS)], center, 85, math.random(90, 110))
+
+	local dmg = DamageInfo()
+	dmg:SetDamage(math.max(victim:Health(), 1) * 10 + 1000)
+	dmg:SetDamageType(DMG_DISSOLVE)
+	dmg:SetAttacker(self)
+	dmg:SetInflictor(self)
+	dmg:SetDamagePosition(center)
+	victim:TakeDamageInfo(dmg)
+	if IsValid(victim) and not victim:IsPlayer() and victim:Health() > 0 then Dissolve(victim) end
 end
 
 function ENT:Release()
@@ -543,7 +584,7 @@ function ENT:PonderAct(now)
 		else
 			self.Goal = nil
 		end
-	elseif act == ACT_GRAPPLE then
+	elseif act == ACT_GRAPPLE or act == ACT_SEAR then
 		self.Goal = nil
 	elseif act == ACT_STUN then
 		self.Goal = nil
@@ -608,6 +649,8 @@ function ENT:UpdateAct(now)
 		end
 	elseif act == ACT_GRAPPLE then
 		self:Grapple(victim, now)
+	elseif act == ACT_SEAR then
+		if now - self:GetActStart() >= EvilCrawler.SEAR_TIME then self:Incinerate(victim) end
 	else
 		self:HoldCorpse(victim, self:HoldPoint(now, FrameTime()), 8, 1)
 		if self:GetAct() == ACT_FEED then self:Feed(victim, now) end
@@ -616,4 +659,5 @@ end
 
 function ENT:OnRemove()
 	self:Release()
+	if self.Roar then self.Roar:Stop() end
 end

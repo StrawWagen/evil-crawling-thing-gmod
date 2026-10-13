@@ -21,7 +21,7 @@ local LOD_DISTANCE = 1500
 
 local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
 	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
-local ACT_GRAPPLE, ACT_STUN = EvilCrawler.ACT_GRAPPLE, EvilCrawler.ACT_STUN
+local ACT_GRAPPLE, ACT_STUN, ACT_SEAR = EvilCrawler.ACT_GRAPPLE, EvilCrawler.ACT_STUN, EvilCrawler.ACT_SEAR
 local STUN_TIME = EvilCrawler.STUN_TIME
 local WINDUP, LUNGE, WRAP_TIME = EvilCrawler.STRIKE_WINDUP, EvilCrawler.STRIKE_LUNGE, EvilCrawler.WRAP_TIME
 local PULL_TIME = EvilCrawler.PULL_TIME
@@ -30,7 +30,7 @@ local LUMP_TIME = EvilCrawler.LUMP_TIME
 local BiteCycle, BiteBone, CurrentPart = EvilCrawler.BiteCycle, EvilCrawler.BiteBone, EvilCrawler.CurrentPart
 local STAB_DEPTH = 10
 local SWALLOW_GAP = { 1.2, 2.2 }
-local ROLE_COUNT = { [ACT_STRIKE] = 1, [ACT_DRAG] = 1, [ACT_FEED] = 1 + EvilCrawler.FEEDERS, [ACT_GRAPPLE] = 1 }
+local ROLE_COUNT = { [ACT_STRIKE] = 1, [ACT_DRAG] = 1, [ACT_FEED] = 1 + EvilCrawler.FEEDERS, [ACT_GRAPPLE] = 1, [ACT_SEAR] = 4 }
 local CURL = 0.25
 local COIL_POINTS = 26
 local REACH_POINTS = 8
@@ -45,6 +45,9 @@ local FOOT_SOUNDS = {
 local FLESH = Color(44, 34, 40)
 local BONE = Color(170, 160, 145)
 local BLOOD = Color(80, 6, 8)
+local HOT = Color(255, 60, 15)
+local WHITE_HOT = Color(255, 210, 140)
+local HEAT_RISE, HEAT_FADE = 4, 1.5
 local DEBUG_TARGET = Color(0, 255, 0)
 local DEBUG_DANGLE = Color(255, 160, 0)
 
@@ -55,6 +58,46 @@ local CatmullRom = Flesh.CatmullRom
 function ENT:Initialize()
 	self:SetRenderBounds(Vector(-400, -400, -400), Vector(400, 400, 400))
 	self:DestroyShadow()
+end
+
+function ENT:Think()
+	local now = CurTime()
+	local left = self:GetRageUntil() - now
+	local want = left > 0 and math.min(1, left / HEAT_FADE) or 0
+	self.Heat = math.Approach(self.Heat or 0, want, FrameTime() * HEAT_RISE)
+	local heat = self.Heat
+	if heat <= 0 then return end
+
+	local light = DynamicLight(self:EntIndex())
+	if light then
+		light.pos = self:GetPos()
+		light.r, light.g, light.b = 255, 90, 30
+		light.brightness = 3 * heat
+		light.size = 320
+		light.decay = 1000
+		light.dietime = now + 0.1
+	end
+
+	local morph = self.Morph
+	if not morph or not self.LimbState or math.random() > heat * FrameTime() * 40 then return end
+	local st = self.LimbState[morph.legs[math.random(#morph.legs)]]
+	local p = st and st.points[math.random(#st.points)]
+	if not p then return end
+	self.Emitter = self.Emitter or ParticleEmitter(self:GetPos())
+	local ember = self.Emitter:Add("effects/fire_embers" .. math.random(3), p)
+	if not ember then return end
+	ember:SetVelocity(VectorRand() * 30 + Vector(0, 0, 50))
+	ember:SetGravity(Vector(0, 0, 80))
+	ember:SetAirResistance(40)
+	ember:SetDieTime(math.Rand(0.6, 1.2))
+	ember:SetStartAlpha(255)
+	ember:SetEndAlpha(0)
+	ember:SetStartSize(math.Rand(3, 6))
+	ember:SetEndSize(0)
+end
+
+function ENT:OnRemove()
+	if self.Emitter then self.Emitter:Finish() end
 end
 
 function ENT:Creature()
@@ -198,6 +241,12 @@ local function GripAxis(body)
 	if pelvis and neck then return pelvis, neck, 9 end
 	local c = body:WorldSpaceCenter()
 	return c - vector_up * 14, c + vector_up * 14, 9
+end
+
+local function Girth(body)
+	if body:IsPlayer() then return GripAxis(body) end
+	local c, size = body:WorldSpaceCenter(), body:OBBMaxs() - body:OBBMins()
+	return c - vector_up * (size.z * 0.3), c + vector_up * (size.z * 0.3), math.min(size.x, size.y) * 0.5
 end
 
 local function Coil(st, leg, role, root, a, b, r, bulge, t)
@@ -404,7 +453,7 @@ function ENT:UpdateLimbs()
 			foot = LerpVector(k, foot, curled)
 		end
 
-		local holding = role and (act == ACT_DRAG or act == ACT_FEED or act == ACT_GRAPPLE) and role.index == 1
+		local holding = role and ((act == ACT_DRAG or act == ACT_FEED or act == ACT_GRAPPLE) and role.index == 1 or act == ACT_SEAR)
 		if role then
 			if act == ACT_STRIKE then
 				local t = now - actStart
@@ -452,14 +501,15 @@ function ENT:UpdateLimbs()
 		if holding and not st.holdSince then st.holdSince = now end
 		if not holding then st.holdSince = nil end
 		if holding then
-			local a, b, r = GripAxis(victim)
+			local a, b, r
+			if act == ACT_SEAR then a, b, r = Girth(victim) else a, b, r = GripAxis(victim) end
 			Coil(st, limb, role, root, a, b, r, up, now - st.holdSince)
 		end
 		st.wrap = math.Approach(st.wrap, holding and 1 or 0, dt * (holding and 12 or 2.5))
 	end
 end
 
-local drawing, drawNow
+local drawing, drawNow, drawHeat
 
 local function LimbRadius(f, limb)
 	local r = limb.width * (1 - 0.9 * f ^ 1.3)
@@ -479,7 +529,11 @@ local function LimbColor(f, limb)
 	local b = limb.shade
 	local r, g, bl = Lerp(k, FLESH.r, BONE.r), Lerp(k, FLESH.g, BONE.g), Lerp(k, FLESH.b, BONE.b)
 	local stain = drawing.blood * math.Clamp((f - 0.55) / 0.3, 0, 1)
-	return Lerp(stain, r, BLOOD.r) * b, Lerp(stain, g, BLOOD.g) * b, Lerp(stain, bl, BLOOD.b) * b
+	r, g, bl = Lerp(stain, r, BLOOD.r) * b, Lerp(stain, g, BLOOD.g) * b, Lerp(stain, bl, BLOOD.b) * b
+	if drawHeat <= 0 then return r, g, bl end
+	local t = f ^ 2
+	return Lerp(drawHeat, r, Lerp(t, HOT.r, WHITE_HOT.r)), Lerp(drawHeat, g, Lerp(t, HOT.g, WHITE_HOT.g)),
+		Lerp(drawHeat, bl, Lerp(t, HOT.b, WHITE_HOT.b))
 end
 
 function ENT:Draw()
@@ -491,10 +545,10 @@ function ENT:Draw()
 	local near = EyePos():DistToSqr(pos) < LOD_DISTANCE * LOD_DISTANCE
 	local sides, sub = near and 6 or 4, near and 3 or 1
 
-	Flesh.SampleLight(pos)
-	render.SetMaterial(Flesh.Material)
-
 	drawNow = UnPredictedCurTime()
+	drawHeat = (self.Heat or 0) * (0.85 + 0.15 * math.sin(drawNow * 23 + math.sin(drawNow * 7) * 2))
+	Flesh.SampleLight(pos, drawHeat)
+	render.SetMaterial(Flesh.Material)
 	for _, limb in ipairs(morph.legs) do
 		local st = self.LimbState[limb]
 		drawing = st

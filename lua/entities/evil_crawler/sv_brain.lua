@@ -44,6 +44,10 @@ local ANGER_PACE = 0.15
 local PAIN_SOUNDS = { "npc/barnacle/barnacle_die1.wav", "npc/barnacle/barnacle_die2.wav" }
 local PAIN_HIT_SOUND = "physics/flesh/flesh_squishy_impact_hard2.wav"
 local SHOT_RADIUS = 0.9
+local RAGE_WINDOW = 10
+local RAGE_REACH = 110
+local RAGE_SOUND = "ambient/fire/gascan_ignite1.wav"
+local RAGE_LOOP = "ambient/fire/fire_med_loop1.wav"
 
 local RHYTHM = {
 	roam = { pace = 0.09, go = { 3, 8 }, stop = { 1, 4 } },
@@ -58,15 +62,16 @@ local RHYTHM = {
 	grapple = { pace = 0 },
 	stunned = { pace = 0 },
 	watch = { pace = 0 },
+	rage = { pace = 1.3 },
 }
 local MOOD = {
 	roam = 0, search = 1, track = 1, hunt = 2, strike = 2, drag = 2, feed = 1, flee = 2, hide = 0, grapple = 2,
-	stunned = 0, watch = 2,
+	stunned = 0, watch = 2, rage = 2,
 }
 local CHASING = { search = true, track = true, hunt = true }
 local STATE_COLOR = {
 	roam = Color(120, 120, 120), search = Color(255, 200, 0), track = Color(255, 120, 0), hunt = Color(255, 0, 0),
-	flee = Color(0, 200, 255), hide = Color(0, 80, 160), watch = Color(255, 0, 255),
+	flee = Color(0, 200, 255), hide = Color(0, 80, 160), watch = Color(255, 0, 255), rage = Color(255, 60, 0),
 }
 
 local function Perceivable(ent)
@@ -241,6 +246,7 @@ function ENT:Ponder()
 		self:PonderAct(now)
 		return
 	end
+	if self.State == "rage" and self:Rampage(now) then return end
 	self:Cool(now)
 	if self:LyingLow(now) then return end
 
@@ -513,6 +519,14 @@ function ENT:Hurt(attacker, from)
 		self:EmitSound(PAIN_SOUNDS[math.random(#PAIN_SOUNDS)], 85, math.random(135, 155))
 	end
 	if self.Off then return end
+	if self:Raging(now) then
+		if IsValid(attacker) and attacker ~= self and not attacker:IsWorld() then self.Grudge = attacker end
+		return
+	end
+	if self:Provoked(now) then
+		self:Rage(attacker, now)
+		return
+	end
 	if self:GetAct() ~= EvilCrawler.ACT_NONE then self:Release() end
 	if self.State == "flee" then
 		if IsValid(attacker) and attacker ~= self and not attacker:IsWorld() then self.Grudge = attacker end
@@ -526,6 +540,79 @@ function ENT:Hurt(attacker, from)
 	self.FleeUntil = now + FLEE_TIME
 	self.Trail = nil
 	self.DetourUntil = nil
+end
+
+function ENT:Raging(now)
+	return now < self:GetRageUntil()
+end
+
+function ENT:Provoked(now)
+	if EvilCrawler.Setting("rage_time") <= 0 then return false end
+	self.Hits = self.Hits or {}
+	self.Hits[#self.Hits + 1] = now
+	while now - self.Hits[1] > RAGE_WINDOW do table.remove(self.Hits, 1) end
+	return #self.Hits >= EvilCrawler.Setting("rage_hits")
+end
+
+function ENT:Rage(by, now)
+	self.Hits = nil
+	if self:GetAct() ~= EvilCrawler.ACT_NONE then self:Release() end
+	if IsValid(by) and by ~= self and not by:IsWorld() then self.Grudge = by end
+	self:SetRageUntil(now + EvilCrawler.Setting("rage_time"))
+	self:SetState("rage")
+	self.Trail, self.DetourUntil, self.Goal = nil, nil, nil
+	self:EmitSound(RAGE_SOUND, 90, 80)
+	self.Roar = self.Roar or CreateSound(self, RAGE_LOOP)
+	self.Roar:Stop()
+	self.Roar:PlayEx(1, 120)
+end
+
+local function Burnable(ent)
+	if not IsValid(ent) or ent.EvilCrawlerVictim or ent:IsFlagSet(FL_NOTARGET) then return false end
+	if ent:IsPlayer() then
+		return ent:Alive() and not EvilCrawler.IgnoresPlayers() and not ent:HasGodMode() and not ent:InVehicle()
+			and ent:GetMoveType() ~= MOVETYPE_NOCLIP and ent:GetObserverMode() == OBS_MODE_NONE
+	end
+	return (ent:IsNPC() or ent:IsNextBot()) and ent:Health() > 0 and ent:GetClass() ~= "npc_bullseye"
+end
+
+function ENT:Quarry()
+	if Burnable(self.Grudge) then return self.Grudge end
+	local pos = self:GetPos()
+	local best, bestDist = nil, EvilCrawler.Setting("sight_range")
+	for _, ent in ipairs(ents.FindInSphere(pos, bestDist)) do
+		if Burnable(ent) then
+			local d = ent:WorldSpaceCenter():Distance(pos)
+			if d < bestDist and not self:Trace(pos, ent:WorldSpaceCenter(), MASK_OPAQUE).Hit then best, bestDist = ent, d end
+		end
+	end
+	return best
+end
+
+function ENT:Rampage(now)
+	if not self:Raging(now) then
+		if self.Roar then self.Roar:FadeOut(1) end
+		self:SetPrey(NULL)
+		self:SetState("flee")
+		self.Goal = self:FindLair()
+		self.FleeUntil = now + FLEE_TIME
+		return false
+	end
+
+	local pos = self:GetPos()
+	local target = self:Quarry()
+	self:SetPrey(target or NULL)
+	if not target then
+		if not self.Goal or self:Reached(self.Goal) then self.Goal = self:Around(pos, 600) end
+		return true
+	end
+	if target:NearestPoint(pos):Distance(pos) < RAGE_REACH then
+		self:Sear(target)
+		return true
+	end
+	self.Goal = target:GetPos()
+	self:Overhead(target, now)
+	return true
 end
 
 function ENT:ShotHits(src, dir, range, shooter)

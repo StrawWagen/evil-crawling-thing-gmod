@@ -8,11 +8,13 @@ EvilCrawler.ACT_DRAG = 2
 EvilCrawler.ACT_FEED = 3
 EvilCrawler.ACT_GRAPPLE = 4
 EvilCrawler.ACT_STUN = 5
+EvilCrawler.ACT_SEAR = 6
 EvilCrawler.STUN_TIME = 3
 EvilCrawler.STRIKE_WINDUP = 0.4
 EvilCrawler.STRIKE_LUNGE = 0.08
 EvilCrawler.WRAP_TIME = 0.15
 EvilCrawler.PULL_TIME = 2
+EvilCrawler.SEAR_TIME = 0.3
 
 EvilCrawler.FEEDERS = 4
 EvilCrawler.BITE_JAB = 0.5
@@ -117,6 +119,7 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Entity", 0, "Prey")
 	self:NetworkVar("Int", 2, "Act")
 	self:NetworkVar("Float", 0, "ActStart")
+	self:NetworkVar("Float", 1, "RageUntil")
 	self:NetworkVar("Entity", 1, "Victim")
 end
 

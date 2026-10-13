@@ -11,10 +11,10 @@ Flesh.Material = CreateMaterial("evil_crawler_flesh", "UnlitGeneric", {
 local AXES = { Vector(1, 0, 0), Vector(-1, 0, 0), Vector(0, 1, 0), Vector(0, -1, 0), Vector(0, 0, 1), Vector(0, 0, -1) }
 local cube = { 0, 0, 0, 0, 0, 0 }
 
-function Flesh.SampleLight(pos)
+function Flesh.SampleLight(pos, glow)
 	for i, axis in ipairs(AXES) do
 		local c = render.ComputeLighting(pos, axis) + render.ComputeDynamicLighting(pos, axis)
-		cube[i] = (c.x + c.y + c.z) / 3
+		cube[i] = Lerp(glow or 0, (c.x + c.y + c.z) / 3, 1)
 	end
 end
 
