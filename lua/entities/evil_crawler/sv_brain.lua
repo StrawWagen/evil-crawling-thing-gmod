@@ -441,6 +441,7 @@ function ENT:Expose()
 	eye:Activate()
 	self:DeleteOnRemove(eye)
 	self.Eye = eye
+	self:AddEFlags(EFL_DONTBLOCKLOS)
 
 	local d = Disposition()
 	for _, npc in ipairs(ents.GetAll()) do
