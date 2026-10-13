@@ -6,6 +6,7 @@ include("evil_crawler/cl_struggle.lua")
 local cv_debug = CreateClientConVar("evil_crawler_debug", "0", false, false, "Draw foot targets")
 
 language.Add("evil_crawler", "Evil Crawler")
+killicon.Add("evil_crawler", "killicons/evil_crawler.png", Color(255, 80, 0))
 
 local LEAD_TIME = 0.18
 local SNAP_GAP = 0.5
