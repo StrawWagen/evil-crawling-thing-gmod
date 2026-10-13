@@ -84,7 +84,7 @@ function ENT:IsHungry()
 end
 
 function ENT:Wants(ply)
-	if EvilCrawler.IgnoresPlayers() or ply:InVehicle() then return false end
+	if EvilCrawler.IgnoresPlayers() or ply:InVehicle() or ply:HasGodMode() then return false end
 	if ply:LookupBone("ValveBiped.Bip01_Spine2") == nil then return false end
 	local digesting = CurTime() - (self.FedAt or -math.huge) < EvilCrawler.Setting("digest_time")
 	return not digesting or ply == self.Grudge
@@ -164,7 +164,7 @@ function ENT:Strike(npc)
 end
 
 function ENT:Seize(ply, now)
-	if not ply:Alive() or ply:InVehicle() or ply:GetMoveType() == MOVETYPE_NOCLIP then
+	if not ply:Alive() or ply:InVehicle() or ply:HasGodMode() or ply:GetMoveType() == MOVETYPE_NOCLIP then
 		self:Release()
 		return
 	end
@@ -197,7 +197,7 @@ function ENT:GripOn(ply)
 end
 
 function ENT:Grapple(ply, now)
-	if not ply:Alive() or ply:GetObserverMode() ~= OBS_MODE_NONE then
+	if not ply:Alive() or ply:HasGodMode() or ply:GetObserverMode() ~= OBS_MODE_NONE then
 		self:Release()
 		return
 	end
