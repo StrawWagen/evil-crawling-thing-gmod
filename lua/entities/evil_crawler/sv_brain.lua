@@ -442,6 +442,10 @@ function ENT:Expose()
 	self:DeleteOnRemove(eye)
 	self.Eye = eye
 	self:AddEFlags(EFL_DONTBLOCKLOS)
+	self:AddFlags(FL_OBJECT)
+	self.DrGBase_Target = true
+	self.VJ_ID_Destructible = true
+	self.MovementType = VJ_MOVETYPE_STATIONARY
 
 	local d = Disposition()
 	for _, npc in ipairs(ents.GetAll()) do
@@ -457,22 +461,44 @@ local function Eyes()
 	return eyes
 end
 
+local function Meet(ent, eyes)
+	local d = Disposition()
+	if ent.IsDrGNextbot then ent:SetClassRelationship("evil_crawler", d, 2) end
+	if not Fights(ent) then return end
+	for _, eye in ipairs(eyes) do ent:AddEntityRelationship(eye, d, 0) end
+end
+
 hook.Add("OnEntityCreated", "EvilCrawlerEnemy", function(ent)
 	timer.Simple(0, function()
-		if not Fights(ent) then return end
-		local d = Disposition()
-		for _, eye in ipairs(Eyes()) do ent:AddEntityRelationship(eye, d, 0) end
+		if IsValid(ent) then Meet(ent, Eyes()) end
 	end)
 end)
 
 cvars.AddChangeCallback("evil_crawler_npcs_fight", function()
-	local d, eyes = Disposition(), Eyes()
-	for _, npc in ipairs(ents.GetAll()) do
-		if Fights(npc) then
-			for _, eye in ipairs(eyes) do npc:AddEntityRelationship(eye, d, 0) end
+	local eyes = Eyes()
+	for _, ent in ipairs(ents.GetAll()) do Meet(ent, eyes) end
+end, "EvilCrawlerEnemy")
+
+function ENT:HandlePerceivedRelationship()
+	return Disposition()
+end
+
+timer.Create("EvilCrawlerEnemy", 1, 0, function()
+	local crawlers = ents.FindByClass("evil_crawler")
+	if #crawlers == 0 then return end
+	for npc in pairs(Scent.npcs) do
+		local list, memory
+		if IsValid(npc) then list, memory = npc.RelationshipEnts, npc.RelationshipMemory end
+		if list and memory then
+			for _, crawler in ipairs(crawlers) do
+				if not table.HasValue(list, crawler) then
+					memory[crawler] = memory[crawler] or {}
+					list[#list + 1] = crawler
+				end
+			end
 		end
 	end
-end, "EvilCrawlerEnemy")
+end)
 
 function ENT:OnTakeDamage(dmg)
 	if dmg:GetDamage() <= 0 then return end
