@@ -185,6 +185,9 @@ local function Hide(npc)
 	npc:AddFlags(FL_NOTARGET)
 	npc:AddEFlags(EFL_NO_THINK_FUNCTION)
 	npc:ClearSchedule()
+	npc:SetEnemy(NULL)
+	npc.EvilCrawlerPaused = npc.PauseAttacks
+	npc.PauseAttacks = true
 end
 
 local function Body(ent)
@@ -404,6 +407,7 @@ local function GetUp(rag, npc)
 	npc:SetNoDraw(false)
 	npc:DrawShadow(true)
 	if not npc.EvilCrawlerHadNoTarget then npc:RemoveFlags(FL_NOTARGET) end
+	npc.PauseAttacks = npc.EvilCrawlerPaused
 	npc.EvilCrawlerVictim = nil
 	npc.EvilCrawlerBody = nil
 	npc.EvilCrawlerFearUntil = CurTime() + ESCAPE_FEAR
