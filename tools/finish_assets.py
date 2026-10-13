@@ -11,8 +11,20 @@ OUTPUTS = [
     ("preview_floor", "workshop/preview_floor.jpg", None),
     ("preview_ceiling", "workshop/preview_ceiling.jpg", None),
 ]
+KILLICON_HEIGHT = 48
 
 renders = sys.argv[1]
+
+alpha = Image.open(os.path.join(renders, "killicon.png")).getchannel("A")
+alpha = alpha.crop(alpha.getbbox())
+alpha = alpha.resize((round(alpha.width * KILLICON_HEIGHT / alpha.height), KILLICON_HEIGHT), Image.LANCZOS)
+icon = Image.new("RGBA", alpha.size, (255, 255, 255, 0))
+icon.putalpha(alpha)
+out = os.path.join(ROOT, "materials/killicons/evil_crawler.png")
+os.makedirs(os.path.dirname(out), exist_ok=True)
+icon.save(out, optimize=True)
+print("materials/killicons/evil_crawler.png  %dx%d" % icon.size)
+
 for shot, path, size in OUTPUTS:
     im = Image.open(os.path.join(renders, shot + ".png")).convert("RGB")
     if size:

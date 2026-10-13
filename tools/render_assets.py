@@ -35,6 +35,7 @@ SHOTS = {
     "preview_ceiling": dict(at=(-2400, -1500, 100), toward=(0, 0, 1), yaw=0, size=(1920, 1080), cam=(2.5, 5.5, 4.4),
                             look=(0, 0, -0.3), lens=28, exposure=1.4,
                             fill=[("AREA", (2, 4, 3.5), 40, (0.6, 0.72, 1.0), 2.0)]),
+    "killicon": dict(size=(1024, 512), cam=(0, -8, 1), look=(0, 0, 0), ortho=8, silhouette=True),
 }
 
 
@@ -343,14 +344,27 @@ def surface_at(point, toward):
     return loc / SCALE, normal
 
 
+def material_white():
+    m = bpy.data.materials.new("White")
+    m.use_nodes = True
+    nt = m.node_tree
+    nt.nodes.remove(nt.nodes["Principled BSDF"])
+    glow = nt.nodes.new("ShaderNodeEmission")
+    nt.links.new(glow.outputs["Emission"], nt.nodes["Material Output"].inputs["Surface"])
+    return m
+
+
 def build(shot, seed, t, map_dir):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
-    stage(map_dir)
     creature = grow(seed)
     h = creature["height"]
 
-    origin, up = surface_at(shot["at"], shot["toward"])
+    if shot.get("silhouette"):
+        origin, up = Vector(), Vector((0, 0, 1))
+    else:
+        stage(map_dir)
+        origin, up = surface_at(shot["at"], shot["toward"])
     yaw = math.radians(shot.get("yaw", 0))
     fwd = Vector((math.cos(yaw), math.sin(yaw), 0))
     if "cam_world" in shot:
@@ -365,7 +379,7 @@ def build(shot, seed, t, map_dir):
     cam_pos = Vector(shot["cam_world"]) if "cam_world" in shot else frame(shot["cam"])
     feel = cam_pos if shot.get("rear") else None
     lead = fwd * (shot.get("lead", 0) * h)
-    flesh = material_flesh()
+    flesh = material_white() if shot.get("silhouette") else material_flesh()
     for i, (leg, chain) in enumerate(pose(creature, up, fwd, t, feel, origin, lead)):
         v, f, c = tube(chain, leg)
         add_mesh("Leg%d" % i, v, f, c, material=flesh)
@@ -379,7 +393,11 @@ def build(shot, seed, t, map_dir):
         light("SPOT", cam_pos + (body - cam_pos).normalized() * 12, body, energy, (1.0, 0.93, 0.8), size=0.05, spot=cone)
 
     cam_data = bpy.data.cameras.new("Camera")
-    cam_data.lens = shot["lens"]
+    if "ortho" in shot:
+        cam_data.type = "ORTHO"
+        cam_data.ortho_scale = shot["ortho"]
+    else:
+        cam_data.lens = shot["lens"]
     cam = bpy.data.objects.new("Camera", cam_data)
     scene.collection.objects.link(cam)
     cam.location = cam_pos * SCALE
@@ -404,11 +422,15 @@ def render(scene, shot, samples, path):
     scene.cycles.use_denoising = True
     scene.render.resolution_x, scene.render.resolution_y = shot["size"]
     scene.render.resolution_percentage = PERCENT
-    scene.render.film_transparent = False
+    scene.render.film_transparent = bool(shot.get("silhouette"))
     scene.render.image_settings.file_format = "PNG"
+    scene.render.image_settings.color_mode = "RGBA"
     try:
-        scene.view_settings.view_transform = "AgX"
-        scene.view_settings.look = "AgX - Medium High Contrast"
+        if shot.get("silhouette"):
+            scene.view_settings.view_transform = "Standard"
+        else:
+            scene.view_settings.view_transform = "AgX"
+            scene.view_settings.look = "AgX - Medium High Contrast"
     except TypeError:
         pass
     scene.view_settings.exposure = shot.get("exposure", 0)
@@ -428,7 +450,7 @@ def main():
     t = float(args.get("--t", 11.0))
     for name in shots:
         shot = SHOTS[name]
-        scene = build(shot, seed, t, args["--map"])
+        scene = build(shot, seed, t, args.get("--map"))
         render(scene, shot, samples, "%s/%s.png" % (out.rstrip("/\\"), name))
 
 
