@@ -422,6 +422,57 @@ function ENT:Steer()
 	return self.Goal, pace * burst, SNAP
 end
 
+local EYE_FLAGS = 65536 + 131072
+
+local function Disposition()
+	return EvilCrawler.Setting("npcs_fight") > 0 and D_HT or D_NU
+end
+
+local function Fights(npc)
+	return IsValid(npc) and npc:IsNPC() and npc:GetClass() ~= "npc_bullseye"
+end
+
+function ENT:Expose()
+	local eye = ents.Create("npc_bullseye")
+	eye:SetPos(self:GetPos())
+	eye:SetParent(self)
+	eye:SetKeyValue("spawnflags", tostring(EYE_FLAGS))
+	eye:Spawn()
+	eye:Activate()
+	self:DeleteOnRemove(eye)
+	self.Eye = eye
+
+	local d = Disposition()
+	for _, npc in ipairs(ents.GetAll()) do
+		if Fights(npc) then npc:AddEntityRelationship(eye, d, 0) end
+	end
+end
+
+local function Eyes()
+	local eyes = {}
+	for _, crawler in ipairs(ents.FindByClass("evil_crawler")) do
+		if IsValid(crawler.Eye) then eyes[#eyes + 1] = crawler.Eye end
+	end
+	return eyes
+end
+
+hook.Add("OnEntityCreated", "EvilCrawlerEnemy", function(ent)
+	timer.Simple(0, function()
+		if not Fights(ent) then return end
+		local d = Disposition()
+		for _, eye in ipairs(Eyes()) do ent:AddEntityRelationship(eye, d, 0) end
+	end)
+end)
+
+cvars.AddChangeCallback("evil_crawler_npcs_fight", function()
+	local d, eyes = Disposition(), Eyes()
+	for _, npc in ipairs(ents.GetAll()) do
+		if Fights(npc) then
+			for _, eye in ipairs(eyes) do npc:AddEntityRelationship(eye, d, 0) end
+		end
+	end
+end, "EvilCrawlerEnemy")
+
 function ENT:OnTakeDamage(dmg)
 	if dmg:GetDamage() <= 0 then return end
 	self:Hurt(dmg:GetAttacker(), dmg:GetDamagePosition())

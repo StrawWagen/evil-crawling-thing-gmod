@@ -3,6 +3,8 @@ EvilCrawler = EvilCrawler or {}
 EvilCrawler.SETTINGS = {
 	{ name = "attack_players", default = 1, min = 0, max = 1, label = "Goes for players",
 		help = "Crawlers go for players too. At 0 they leave players alone entirely" },
+	{ name = "npcs_fight", default = 1, min = 0, max = 1, label = "NPCs fight back",
+		help = "NPCs treat crawlers as enemies and shoot at them" },
 	{ name = "struggle_time", default = 3.5, min = 0.5, max = 15, decimals = 1, label = "Struggle time",
 		help = "Seconds a grabbed player has to fight free before going under" },
 	{ name = "sedate_time", default = 10, min = 0.1, max = 60, decimals = 1, label = "Sedate time",

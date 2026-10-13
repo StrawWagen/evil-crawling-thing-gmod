@@ -83,6 +83,7 @@ function ENT:Initialize()
 	self.Facing = facing:GetNormalized()
 	self.Vel = Vector()
 	self.Falling = false
+	self:Expose()
 end
 
 function ENT:Think()
