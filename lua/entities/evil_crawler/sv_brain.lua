@@ -475,6 +475,7 @@ local function Meet(ent, eyes)
 end
 
 hook.Add("OnEntityCreated", "EvilCrawlerEnemy", function(ent)
+	if not (ent:IsNPC() or ent:IsNextBot()) then return end
 	timer.Simple(0, function()
 		if IsValid(ent) then Meet(ent, Eyes()) end
 	end)
@@ -568,7 +569,8 @@ function ENT:Rage(by, now)
 end
 
 local function Burnable(ent)
-	if not IsValid(ent) or ent.EvilCrawlerVictim or ent:IsFlagSet(FL_NOTARGET) then return false end
+	if not IsValid(ent) or not (ent:IsPlayer() or ent:IsNPC() or ent:IsNextBot()) then return false end
+	if ent.EvilCrawlerVictim or ent:IsFlagSet(FL_NOTARGET) then return false end
 	if ent:IsPlayer() then
 		return ent:Alive() and not EvilCrawler.IgnoresPlayers() and not ent:HasGodMode() and not ent:InVehicle()
 			and ent:GetMoveType() ~= MOVETYPE_NOCLIP and ent:GetObserverMode() == OBS_MODE_NONE

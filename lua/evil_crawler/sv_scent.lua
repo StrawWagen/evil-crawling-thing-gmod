@@ -273,6 +273,7 @@ hook.Add("EntityTakeDamage", "EvilCrawlerScent", function(ent)
 end)
 
 hook.Add("OnEntityCreated", "EvilCrawlerScent", function(ent)
+	if not ent:IsNPC() then return end
 	timer.Simple(0, function()
 		if IsValid(ent) and ent:IsNPC() then Scent.npcs[ent] = true end
 	end)
