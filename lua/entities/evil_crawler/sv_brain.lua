@@ -52,6 +52,9 @@ local RAGE_WINDOW = 30
 local RAGE_REACH = 110
 local RAGE_SOUND = "ambient/fire/gascan_ignite1.wav"
 local RAGE_LOOP = "ambient/fire/fire_med_loop1.wav"
+local DOORS = { prop_door_rotating = true, func_door = true, func_door_rotating = true }
+local BASH_GAP = 2
+local BASH_SOUNDS = { "physics/wood/wood_box_impact_hard3.wav", "physics/wood/wood_panel_impact_hard1.wav" }
 
 local RHYTHM = {
 	roam = { pace = 0.09, go = { 3, 8 }, stop = { 1, 4 } },
@@ -391,6 +394,19 @@ function ENT:CheckProgress(now)
 			self:Veer(now, 1.5)
 		end
 	end
+end
+
+function ENT:Bash(door, at)
+	local now = CurTime()
+	if not DOORS[door:GetClass()] or now < (door.EvilCrawlerBashed or 0) or EvilCrawler.Setting("open_doors") == 0 then return end
+	door.EvilCrawlerBashed = now + BASH_GAP
+	door:Fire("Unlock")
+	if door:GetClass() == "prop_door_rotating" then
+		door:Fire("OpenAwayFrom", "!activator", 0, self)
+	else
+		door:Fire("Open")
+	end
+	sound.Play(BASH_SOUNDS[math.random(#BASH_SOUNDS)], at, 85, math.random(80, 95))
 end
 
 function ENT:Veer(now, time)

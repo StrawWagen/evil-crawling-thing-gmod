@@ -142,6 +142,7 @@ end
 function ENT:SafeMove(from, to)
 	local tr = self:Trace(from, to)
 	if not tr.Hit then return to end
+	if IsValid(tr.Entity) then self:Bash(tr.Entity, tr.HitPos) end
 	if tr.StartSolid then return from end
 	self.Vel = self.Vel - tr.HitNormal * math.min(0, self.Vel:Dot(tr.HitNormal))
 	return tr.HitPos + tr.HitNormal
