@@ -32,6 +32,9 @@ local SKIP_AHEAD = 260
 local LIFT = Vector(0, 0, 16)
 local SEARCH_TIME = 8
 local SEARCH_SPREAD = 300
+local HUNT_MEMORY = 4
+local LOST_MEMORY = 20
+local LOST_PULL = 3
 local STUCK_TIME = 2.5
 local HUNGRY_PULL = 2
 local SNIFF_TIME = 5
@@ -211,6 +214,7 @@ function ENT:Appeal(node, now)
 	end
 	if node.fear then w = w * FEAR_PULL end
 	if owner == self.Grudge then w = w * GRUDGE_PULL end
+	if owner == self.Hunted and now - self.SensedAt < LOST_MEMORY then w = w * LOST_PULL end
 	return Scent.Intensity(node, now) * w
 end
 
@@ -288,10 +292,15 @@ function ENT:Ponder()
 		self:SetState("hunt")
 		self.Goal = prey:GetPos()
 		self.LastKnown = self:Lead(prey)
+		self.Hunted, self.SensedAt = prey, now
 		self:Overhead(prey, now)
 		return
 	end
 	if self.State == "hunt" then
+		if now - self.SensedAt < HUNT_MEMORY and not self:Reached(self.LastKnown) then
+			self.Goal = self.LastKnown
+			return
+		end
 		self:SetState("search")
 		self.Goal = self.LastKnown
 		self.SearchUntil = now + SEARCH_TIME
