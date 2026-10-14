@@ -18,6 +18,7 @@ local MOOD_AGITATION = { [0] = 0, [1] = 0.45, [2] = 1 }
 local THREAT_ARC = 35
 local IK_ITERATIONS = 3
 local LOD_DISTANCE = 1500
+local MIN_SHRINK = 0.3
 
 local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
 	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
@@ -129,17 +130,23 @@ local function Smooth(t)
 	return t * t * (3 - 2 * t)
 end
 
-local function Pose(st, limb, root, target, bow, t, shake)
+local function Pose(st, limb, root, target, bow, t, shake, shrink)
 	local pts = st.points
 	local n = limb.segments + 1
-	local wobble = limb.length * shake
+	local wobble = limb.length * shake * shrink
+	local lengths = limb.lengths
+	if shrink < 1 then
+		lengths = st.lengths or {}
+		st.lengths = lengths
+		for i, l in ipairs(limb.lengths) do lengths[i] = l * shrink end
+	end
 	for i = 1, n do
 		local f = (i - 1) / (n - 1)
 		local arch = math.sin(f * math.pi)
 		local noise = Wobble(t, limb.phase + i * 1.9, limb.freq) * wobble + st.twitch
 		pts[i] = LerpVector(f, root, target) + (bow + noise) * arch
 	end
-	SolveChain(pts, limb.lengths, root, target, IK_ITERATIONS)
+	SolveChain(pts, lengths, root, target, IK_ITERATIONS)
 end
 
 local function Resample(pts, m, out)
@@ -363,6 +370,7 @@ function ENT:UpdateLimbs()
 	local low = 1 - 0.65 * skitter
 	local loud = math.Clamp(speed / SKITTER[2], 0, 1)
 	local shake = 0.04 + 0.04 * agit
+	local squeezed = math.max(MIN_SHRINK, 1 - self:GetSqueeze())
 	local twitchRate = 0.2 + 1.2 * agit
 
 	local threatYaw
@@ -392,8 +400,10 @@ function ENT:UpdateLimbs()
 
 		local root = toWorld(limb.root)
 
+		local role = self.Roles[limb]
+		local shrink = role and 1 or squeezed
 		local yaw = math.rad(limb.angle)
-		local rest = pos + (fwd * math.cos(yaw) + left * math.sin(yaw)) * (limb.length * limb.spread) + lead
+		local rest = pos + (fwd * math.cos(yaw) + left * math.sin(yaw)) * (limb.length * limb.spread * shrink) + lead
 		local target, grounded = self:FootTarget(root, rest, up)
 		if not grounded then
 			target = target + Wobble(now * 2, limb.phase, limb.freq) * limb.length * 0.2
@@ -401,7 +411,6 @@ function ENT:UpdateLimbs()
 		st.target, st.grounded = target, grounded
 		st.foot = st.foot or target
 
-		local role = self.Roles[limb]
 		if role and (not IsValid(victim) or (act == ACT_FEED and role.index > 1 and now - actStart < PULL_TIME)) then
 			role = nil
 		end
@@ -436,8 +445,8 @@ function ENT:UpdateLimbs()
 				st.foot = LerpVector(math.min(1, dt * 6), st.foot, target)
 			else
 				local drift = st.foot:Distance(target)
-				local overreach = st.foot:Distance(root) > limb.length * 0.97
-				if overreach or (drift > limb.stepDistance and airborne < maxAirborne and self:NeighboursPlanted(limb)) then
+				local overreach = st.foot:Distance(root) > limb.length * shrink * 0.97
+				if overreach or (drift > limb.stepDistance * shrink and airborne < maxAirborne and self:NeighboursPlanted(limb)) then
 					st.stepping, st.t, st.from = true, 0, st.foot
 					airborne = airborne + 1
 				end
@@ -447,7 +456,7 @@ function ENT:UpdateLimbs()
 		local foot = st.foot
 		if st.stepping then
 			local t = st.t
-			foot = LerpVector(Smooth(t), st.from, target) + up * (math.sin(t * math.pi) * limb.stepHeight * low)
+			foot = LerpVector(Smooth(t), st.from, target) + up * (math.sin(t * math.pi) * limb.stepHeight * low * shrink)
 		end
 		if st.raise > 0 and self.LastFeel then
 			local aim = root + (self.LastFeel - root):GetNormalized() * (limb.length * 0.75) + up * (limb.length * 0.25)
@@ -513,7 +522,7 @@ function ENT:UpdateLimbs()
 		while st.lumps[1] and now - st.lumps[1] > LUMP_TIME do table.remove(st.lumps, 1) end
 		st.blood = math.max(0, st.blood - dt * 0.02)
 
-		Pose(st, limb, root, foot, up * (limb.length * (act == ACT_OUT and 0.08 or 0.35)), now, shake)
+		Pose(st, limb, root, foot, up * (limb.length * shrink * (act == ACT_OUT and 0.08 or 0.35)), now, shake, shrink)
 
 		if holding and not st.holdSince then st.holdSince = now end
 		if not holding then st.holdSince = nil end

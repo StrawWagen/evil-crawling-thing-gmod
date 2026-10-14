@@ -20,6 +20,14 @@ local REGRIP = 0.2
 local PROBE_REACH = 2.2
 local RUSH_SPEED = 250
 local CROUCH = { 300, 1000, 0.35 }
+local SWINGS = { prop_door_rotating = true, func_door_rotating = true }
+local LEVELS = { 1, 0.5, 0.25 }
+local AHEAD = 1.5
+local ROOM_PAD = 40
+local ROOM_MIN = 10
+local DUCK_RATE, RISE_RATE = 12, 4
+local FACING = -0.5
+local GAP_GRIP = 0.1
 
 local DOWN, RING = { Vector(0, 0, -1) }, {}
 for i = 0, 7 do
@@ -83,6 +91,7 @@ function ENT:Initialize()
 	self.Facing = facing:GetNormalized()
 	self.Vel = Vector()
 	self.Falling = false
+	self.Room = self.BodyHeight
 	self:Expose()
 end
 
@@ -102,9 +111,11 @@ function ENT:SenseSurface(pos, fwd, left, up, move)
 	local function probe(from, dir, len, weight)
 		local tr = self:Trace(from, from + dir * len)
 		if not tr.Hit or tr.StartSolid or tr.HitSky or tr.HitNoDraw then return false end
+		if IsValid(tr.Entity) and SWINGS[tr.Entity:GetClass()] then return false end
 		if cv_probes:GetBool() then debugoverlay.Line(from, tr.HitPos, 0.05, PROBE_COLOR, true) end
 		local near = 1 - math.min(1, tr.HitPos:Distance(pos) / reach)
 		local w = weight * near * near
+		if self.Gap and tr.HitNormal:Dot(self.Gap) < FACING then w = w * GAP_GRIP end
 		normal:Add(tr.HitNormal * w)
 		point:Add(tr.HitPos * w)
 		grip = grip + w
@@ -137,6 +148,32 @@ function ENT:SenseSurface(pos, fwd, left, up, move)
 
 	if grip <= 0 then return nil, nil, 0 end
 	return normal:GetNormalized(), point / grip, grip
+end
+
+function ENT:Headroom(pos, up, height, dir)
+	local h = self.BodyHeight
+	local floor = pos - up * height
+	local squeeze = EvilCrawler.Setting("squeeze") > 0
+	local room, ceiling = math.huge, h + ROOM_PAD
+	if squeeze then
+		local tr = self:Trace(floor + up, floor + up * ceiling)
+		if tr.Hit and not tr.StartSolid then
+			ceiling = (tr.HitPos - floor):Dot(up)
+			room = math.max(ceiling * 0.5, ceiling - ROOM_PAD)
+		end
+	end
+	if not dir then return room end
+
+	for i, k in ipairs(LEVELS) do
+		if i > 1 and not squeeze then break end
+		local from = floor + up * (h * k)
+		if h * k < ceiling then
+			local tr = self:Trace(from, from + dir * (h * AHEAD))
+			if i == 1 and IsValid(tr.Entity) then self:Bash(tr.Entity, tr.HitPos) end
+			if not tr.Hit then return i > 1 and math.min(room, h * k) or room, dir end
+		end
+	end
+	return room
 end
 
 function ENT:SafeMove(from, to)
@@ -174,12 +211,21 @@ function ENT:Crawl(dt)
 			wish = flat:GetNormalized() * topSpeed * math.Clamp((along - 24) / (h * 1.5), 0, 1)
 		end
 
+		local height = (pos - anchor):Dot(normal)
+		local room
+		room, self.Gap = self:Headroom(pos, normal, height, wish:LengthSqr() > 1 and wish:GetNormalized() or nil)
+		room = math.Clamp(room, ROOM_MIN, h)
+		self.Room = Lerp(1 - math.exp(-dt * (room < self.Room and DUCK_RATE or RISE_RATE)), self.Room, room)
+		local squeeze = math.Round(1 - self.Room / h, 2)
+		if squeeze ~= self:GetSqueeze() then self:SetSqueeze(squeeze) end
+
 		self.Vel = LerpVector(1 - math.exp(-dt * accel), self.Vel, wish)
 		self.Vel = self.Vel - up * self.Vel:Dot(up)
 
-		local err = h * (1 - crouch) - (pos - anchor):Dot(normal)
+		local err = math.min(h * (1 - crouch), self.Room) - height
 		pos = self:SafeMove(pos, pos + self.Vel * dt + normal * (err * (1 - math.exp(-dt * HOLD_RATE * rush))))
 	else
+		self.Gap = nil
 		up, fwd = Turn(up, fwd, vector_up, 1 - math.exp(-dt * 3))
 		self.Vel = self.Vel - vector_up * (GRAVITY * dt)
 		local want = pos + self.Vel * dt

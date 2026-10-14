@@ -125,6 +125,7 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Int", 2, "Act")
 	self:NetworkVar("Float", 0, "ActStart")
 	self:NetworkVar("Float", 1, "RageUntil")
+	self:NetworkVar("Float", 2, "Squeeze")
 	self:NetworkVar("Entity", 1, "Victim")
 end
 

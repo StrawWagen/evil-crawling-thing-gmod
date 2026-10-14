@@ -7,6 +7,8 @@ EvilCrawler.SETTINGS = {
 		help = "NPCs treat crawlers as enemies and shoot at them" },
 	{ name = "open_doors", default = 1, min = 0, max = 1, label = "Opens doors",
 		help = "Crawlers force doors open, locked or not" },
+	{ name = "squeeze", default = 1, min = 0, max = 1, label = "Squeezes through gaps",
+		help = "Crawlers shrink down to follow through vents, crawlspaces and low holes" },
 	{ name = "struggle_time", default = 3.5, min = 0.5, max = 15, decimals = 1, label = "Struggle time",
 		help = "Seconds a grabbed player has to fight free before going under" },
 	{ name = "sedate_time", default = 10, min = 0.1, max = 60, decimals = 1, label = "Sedate time",
