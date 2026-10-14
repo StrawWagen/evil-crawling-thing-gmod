@@ -146,7 +146,7 @@ local function Prune(now)
 	end
 end
 
-function Scent.Strongest(pos, radius, now, weigh)
+function Scent.Strongest(pos, radius, now, weigh, reach)
 	local best, bestIntensity = nil, 0
 	local r2 = radius * radius
 	local x0, y0, z0 = CellOf(pos - Vector(radius, radius, radius))
@@ -159,7 +159,7 @@ function Scent.Strongest(pos, radius, now, weigh)
 					for node in pairs(cell) do
 						if node.pos:DistToSqr(pos) <= r2 then
 							local i = weigh and weigh(node, now) or Scent.Intensity(node, now)
-							if i > bestIntensity then best, bestIntensity = node, i end
+							if i > bestIntensity and (not reach or reach(node)) then best, bestIntensity = node, i end
 						end
 					end
 				end

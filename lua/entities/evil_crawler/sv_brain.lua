@@ -29,6 +29,7 @@ local NOTICE = 0.35
 local LEAD = 0.6
 local REACHED = 72
 local SKIP_AHEAD = 260
+local LIFT = Vector(0, 0, 16)
 local SEARCH_TIME = 8
 local SEARCH_SPREAD = 300
 local STUCK_TIME = 2.5
@@ -207,10 +208,14 @@ function ENT:Appeal(node, now)
 	return Scent.Intensity(node, now) * w
 end
 
+function ENT:Smells(node)
+	return not self:Trace(self:GetPos(), node.pos + LIFT).Hit
+end
+
 function ENT:FollowTrail(node)
 	local pos = self:GetPos()
 	while node.next and not node.next.dead do
-		if self:Reached(node.pos) or node.next.pos:Distance(pos) < SKIP_AHEAD then
+		if self:Reached(node.pos) or node.next.pos:Distance(pos) < SKIP_AHEAD and self:Smells(node.next) then
 			node = node.next
 		else
 			break
@@ -299,7 +304,8 @@ function ENT:Ponder()
 	local node = self.Trail
 	if node and (node.dead or self:Appeal(node, now) < SCENT_THRESHOLD * 0.5) then node = nil end
 	self.WeighScent = self.WeighScent or function(n, t) return self:Appeal(n, t) end
-	local whiff, strength = Scent.Strongest(pos, SNIFF_RADIUS, now, self.WeighScent)
+	self.ReachScent = self.ReachScent or function(n) return self:Smells(n) end
+	local whiff, strength = Scent.Strongest(pos, SNIFF_RADIUS, now, self.WeighScent, self.ReachScent)
 	if whiff and strength >= SCENT_THRESHOLD and (not node or strength > self:Appeal(node, now) * 1.5) then
 		node = whiff
 	end
