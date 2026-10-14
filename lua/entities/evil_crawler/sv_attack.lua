@@ -649,6 +649,10 @@ end
 
 function ENT:PonderAct(now)
 	local act = self:GetAct()
+	if not self:Awake() then
+		self.Goal = nil
+		return
+	end
 	if act ~= ACT_STUN and not IsValid(self:GetVictim()) then
 		self:Release()
 		return
@@ -691,7 +695,8 @@ end
 
 function ENT:UpdateAct(now)
 	local act = self:GetAct()
-	if act == ACT_NONE or act == ACT_STUN then return end
+	if act == EvilCrawler.ACT_OUT and now >= self.OutUntil then self:Wake(now) end
+	if act == ACT_NONE or act == ACT_STUN or not self:Awake() then return end
 
 	local victim = self:GetVictim()
 	if not IsValid(victim) then
@@ -732,4 +737,5 @@ end
 function ENT:OnRemove()
 	self:Release()
 	if self.Roar then self.Roar:Stop() end
+	if self.Breath then self.Breath:Stop() end
 end

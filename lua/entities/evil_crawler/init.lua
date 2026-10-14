@@ -182,7 +182,9 @@ function ENT:Crawl(dt)
 	else
 		up, fwd = Turn(up, fwd, vector_up, 1 - math.exp(-dt * 3))
 		self.Vel = self.Vel - vector_up * (GRAVITY * dt)
-		pos = self:SafeMove(pos, pos + self.Vel * dt)
+		local want = pos + self.Vel * dt
+		pos = self:SafeMove(pos, want)
+		if pos ~= want then self.Vel = self.Vel * math.exp(-dt * 6) end
 	end
 
 	if not self.Falling and self.Vel:LengthSqr() > 100 then

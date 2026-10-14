@@ -59,6 +59,14 @@ local RAGE_WINDOW = 30
 local RAGE_REACH = 110
 local RAGE_SOUND = "ambient/fire/gascan_ignite1.wav"
 local RAGE_LOOP = "ambient/fire/fire_med_loop1.wav"
+local OUT_SPREAD = { 0.8, 1.2 }
+local OUT_SOUND = "physics/flesh/flesh_squishy_impact_hard4.wav"
+local BREATH_LOOP = "npc/zombie_poison/pz_breathe_loop1.wav"
+local WAKE_SOUND = "npc/barnacle/barnacle_tongue_pull1.wav"
+local RISE_TIME = 1.2
+local KILL_HITS = 6
+local DEATH_SOUND = "physics/flesh/flesh_bloody_break.wav"
+local CORPSE_TIME = 30
 local DOORS = { prop_door_rotating = true, func_door = true, func_door_rotating = true }
 local BASH_GAP = 2
 local BASH_SOUNDS = { "physics/wood/wood_box_impact_hard3.wav", "physics/wood/wood_panel_impact_hard1.wav" }
@@ -77,10 +85,12 @@ local RHYTHM = {
 	stunned = { pace = 0 },
 	watch = { pace = 0 },
 	rage = { pace = 1.3 },
+	out = { pace = 0 },
+	dead = { pace = 0 },
 }
 local MOOD = {
 	roam = 0, search = 1, track = 1, hunt = 2, strike = 2, drag = 2, feed = 1, flee = 2, hide = 0, grapple = 2,
-	stunned = 0, watch = 2, rage = 2,
+	stunned = 0, watch = 2, rage = 2, out = 0, dead = 0,
 }
 local CHASING = { search = true, track = true, hunt = true }
 local STATE_COLOR = {
@@ -526,7 +536,7 @@ end
 
 function ENT:Switched()
 	if not (ai_disabled and ai_disabled:GetBool()) then return false end
-	if self:GetAct() ~= EvilCrawler.ACT_NONE then self:Release() end
+	if self:Awake() and self:GetAct() ~= EvilCrawler.ACT_NONE then self:Release() end
 	self:SetPrey(NULL)
 	self:SetMood(0)
 	self.DetourUntil = nil
@@ -551,6 +561,7 @@ function ENT:Steer()
 	if self.DetourUntil and now < self.DetourUntil then
 		return self:GetPos() + self.Detour, (self.Pace or 0) * burst, SNAP
 	end
+	if now < (self.RiseUntil or 0) then return nil, 0, SNAP end
 	self:Fits(now)
 	if self.Still then return nil, 0, SNAP end
 	local pace = self.Pace or 0
@@ -647,14 +658,24 @@ end
 
 function ENT:Hurt(attacker, from)
 	local now = CurTime()
+	if self:GetAct() == EvilCrawler.ACT_DEAD then return end
 
 	if now >= (self.NextPain or 0) then
 		self.NextPain = now + 1.5
 		self:EmitSound(PAIN_SOUNDS[math.random(#PAIN_SOUNDS)], 85, math.random(135, 155))
 	end
 	if self.Off then return end
+	if self:GetAct() == EvilCrawler.ACT_OUT then
+		self:Blame(attacker)
+		self.Blows = self.Blows + 1
+		if EvilCrawler.Setting("killable") > 0 and self.Blows >= KILL_HITS then self:Die() end
+		return
+	end
 	if self:Raging(now) then
-		if IsValid(attacker) and attacker ~= self and not attacker:IsWorld() then self.Grudge = attacker end
+		self:Blame(attacker)
+		self.Blows = (self.Blows or 0) + 1
+		local need = EvilCrawler.Setting("knockout_hits")
+		if need > 0 and self.Blows >= need then self:KnockOut(now) end
 		return
 	end
 	if self:Provoked(now) then
@@ -676,6 +697,70 @@ function ENT:Hurt(attacker, from)
 	self.DetourUntil = nil
 end
 
+function ENT:Blame(by)
+	if not IsValid(by) or by == self or by:IsWorld() then return end
+	self.Grudge = by
+	self.LastKnown = by:GetPos()
+end
+
+function ENT:Awake()
+	local act = self:GetAct()
+	return act ~= EvilCrawler.ACT_OUT and act ~= EvilCrawler.ACT_DEAD
+end
+
+function ENT:KnockOut(now)
+	if self:GetAct() ~= EvilCrawler.ACT_NONE then self:Release() end
+	self:SetRageUntil(now)
+	if self.Roar then self.Roar:FadeOut(1) end
+	self:SetPrey(NULL)
+	self:SetAct(EvilCrawler.ACT_OUT)
+	self:SetActStart(now)
+	self:SetState("out")
+	self.Blows = 0
+	self.OutUntil = now + EvilCrawler.Setting("knockout_time") * math.Rand(OUT_SPREAD[1], OUT_SPREAD[2])
+	self.LetGoUntil = self.OutUntil
+	self.Goal, self.Trail, self.DetourUntil = nil, nil, nil
+	self:EmitSound(OUT_SOUND, 80, math.random(70, 80))
+	self:EmitSound(PAIN_SOUNDS[math.random(#PAIN_SOUNDS)], 85, math.random(70, 85))
+	self.Breath = self.Breath or CreateSound(self, BREATH_LOOP)
+	self.Breath:PlayEx(0.35, 150)
+end
+
+function ENT:Wake(now)
+	self:SetAct(EvilCrawler.ACT_NONE)
+	if self.Breath then self.Breath:FadeOut(0.5) end
+	self:EmitSound(WAKE_SOUND, 80, math.random(60, 70))
+	self.LetGoUntil = nil
+	self.RiseUntil = now + RISE_TIME
+	self.Anger = ANGER_MAX
+	self.CalmAt = now + ANGER_FADE
+	self.Spent = nil
+	self:SetState("search")
+	self.Goal = self.LastKnown
+	self.SearchUntil = now + SEARCH_TIME
+	if IsValid(self.Grudge) then self.Hunted, self.SensedAt = self.Grudge, now end
+end
+
+function ENT:Die()
+	local pos = self:GetPos()
+	self:SetAct(EvilCrawler.ACT_DEAD)
+	self:SetActStart(CurTime())
+	self:SetState("dead")
+	self.LetGoUntil = math.huge
+	if self.Breath then self.Breath:Stop() end
+	if IsValid(self.Eye) then self.Eye:Remove() end
+	for _ = 1, 4 do
+		local fx = EffectData()
+		fx:SetOrigin(pos + VectorRand() * 12)
+		fx:SetNormal(VectorRand())
+		fx:SetColor(BLOOD_COLOR_YELLOW)
+		util.Effect("BloodImpact", fx)
+	end
+	self:EmitSound(DEATH_SOUND, 80, math.random(80, 95))
+	self:EmitSound(PAIN_SOUNDS[math.random(#PAIN_SOUNDS)], 90, math.random(55, 65))
+	SafeRemoveEntityDelayed(self, CORPSE_TIME)
+end
+
 function ENT:Raging(now)
 	return now < self:GetRageUntil()
 end
@@ -689,7 +774,7 @@ function ENT:Provoked(now)
 end
 
 function ENT:Rage(by, now)
-	self.Hits = nil
+	self.Hits, self.Blows = nil, 0
 	if self:GetAct() ~= EvilCrawler.ACT_NONE then self:Release() end
 	if IsValid(by) and by ~= self and not by:IsWorld() then self.Grudge = by end
 	self:SetRageUntil(now + EvilCrawler.Setting("rage_time"))
@@ -751,6 +836,7 @@ function ENT:Rampage(now)
 end
 
 function ENT:ShotHits(src, dir, range, shooter)
+	if self:GetAct() == EvilCrawler.ACT_DEAD then return end
 	local center = self:GetPos()
 	local r = self.BodyHeight * SHOT_RADIUS
 	local t = (center - src):Dot(dir)

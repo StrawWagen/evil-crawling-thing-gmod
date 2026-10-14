@@ -22,6 +22,7 @@ local LOD_DISTANCE = 1500
 local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
 	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
 local ACT_GRAPPLE, ACT_STUN, ACT_SEAR = EvilCrawler.ACT_GRAPPLE, EvilCrawler.ACT_STUN, EvilCrawler.ACT_SEAR
+local ACT_OUT, ACT_DEAD = EvilCrawler.ACT_OUT, EvilCrawler.ACT_DEAD
 local STUN_TIME = EvilCrawler.STUN_TIME
 local WINDUP, LUNGE, WRAP_TIME = EvilCrawler.STRIKE_WINDUP, EvilCrawler.STRIKE_LUNGE, EvilCrawler.WRAP_TIME
 local PULL_TIME = EvilCrawler.PULL_TIME
@@ -32,6 +33,8 @@ local STAB_DEPTH = 10
 local SWALLOW_GAP = { 1.2, 2.2 }
 local ROLE_COUNT = { [ACT_STRIKE] = 1, [ACT_DRAG] = 1, [ACT_FEED] = 1 + EvilCrawler.FEEDERS, [ACT_GRAPPLE] = 1, [ACT_SEAR] = 4 }
 local CURL = 0.25
+local SPRAWL = 0.85
+local DEATH_CURL = 1.5
 local COIL_POINTS = 26
 local REACH_POINTS = 8
 
@@ -336,6 +339,7 @@ function ENT:UpdateLimbs()
 	local agit = self.Agitation
 
 	local act, victim, actStart = self:GetAct(), self:GetVictim(), self:GetActStart()
+	local limp = act == ACT_OUT or act == ACT_DEAD
 
 	if act == ACT_NONE then
 		self.Churn = self.Churn + dt * morph.churn * (1 + math.sin(now * 0.3 + morph.phase)) * (1 + 2 * agit)
@@ -409,7 +413,12 @@ function ENT:UpdateLimbs()
 			and math.abs(math.AngleDifference(limb.angle, threatYaw)) < THREAT_ARC
 		st.raise = math.Approach(st.raise, threatened and 1 or 0, dt * 2.5)
 
-		if st.stepping then
+		if limp then
+			local flat = pos + (fwd * math.cos(yaw) + left * math.sin(yaw)) * (limb.length * SPRAWL)
+			local tr = self:Trace(flat + up * (limb.length * 0.3), flat - up * limb.length)
+			st.foot = LerpVector(math.min(1, dt * 5), st.foot, tr.Hit and tr.HitPos or flat)
+			st.stepping = false
+		elseif st.stepping then
 			st.t = st.t + dt / (limb.stepTime * hurry)
 			if st.t >= 1 then
 				st.stepping = false
@@ -450,6 +459,13 @@ function ENT:UpdateLimbs()
 			local k = Smooth(math.Clamp(t / 0.12, 0, 1)) * Smooth(math.Clamp((STUN_TIME - t) / 0.8, 0, 1))
 			local curled = root + (foot - root) * CURL - up * (limb.length * 0.1)
 				+ Wobble(now * 26, limb.phase, limb.freq) * (limb.length * 0.04 * k)
+			foot = LerpVector(k, foot, curled)
+		end
+
+		if act == ACT_DEAD then
+			local k = Smooth(math.Clamp((now - actStart) / DEATH_CURL, 0, 1))
+			local curled = root + (foot - root) * 0.2 + up * (limb.length * 0.3)
+				+ Wobble(now * 30, limb.phase, limb.freq) * (limb.length * 0.03 * (1 - k))
 			foot = LerpVector(k, foot, curled)
 		end
 
@@ -496,7 +512,7 @@ function ENT:UpdateLimbs()
 		while st.lumps[1] and now - st.lumps[1] > LUMP_TIME do table.remove(st.lumps, 1) end
 		st.blood = math.max(0, st.blood - dt * 0.02)
 
-		Pose(st, limb, root, foot, up * (limb.length * 0.35), now, shake)
+		Pose(st, limb, root, foot, up * (limb.length * (act == ACT_OUT and 0.08 or 0.35)), now, shake)
 
 		if holding and not st.holdSince then st.holdSince = now end
 		if not holding then st.holdSince = nil end
