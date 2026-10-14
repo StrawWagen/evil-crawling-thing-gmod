@@ -34,7 +34,8 @@ local LAIR_RANGE = { 700, 2500 }
 local OUT_OF_SIGHT = 1500
 local DISTURB_RANGE = 330
 local PRESS_GAIN = 0.1
-local PRESS_GAP = 1 / 16
+local PRESS_RATE = 16
+local PRESS_BURST = 4
 local SLIP = 0.3
 local ESCAPE_MEMORY = 90
 local REEL = 0.45
@@ -314,8 +315,10 @@ end
 function ENT:Struggled(ply)
 	if self:GetAct() ~= ACT_GRAPPLE or self:GetVictim() ~= ply then return end
 	local now = CurTime()
-	if now < (ply.EvilCrawlerNextPress or 0) then return end
-	ply.EvilCrawlerNextPress = now + PRESS_GAP
+	local credit = math.min(PRESS_BURST, (ply.EvilCrawlerCredit or PRESS_BURST) + (now - (ply.EvilCrawlerPressAt or now)) * PRESS_RATE)
+	ply.EvilCrawlerPressAt = now
+	ply.EvilCrawlerCredit = math.max(0, credit - 1)
+	if credit < 1 then return end
 
 	ply.EvilCrawlerFree = ply.EvilCrawlerFree + PRESS_GAIN
 	ply:ViewPunch(Angle(math.Rand(-3, 3), math.Rand(-3, 3), math.Rand(-5, 5)))
