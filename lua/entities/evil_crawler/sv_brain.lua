@@ -326,7 +326,8 @@ function ENT:Ponder()
 	self.WeighScent = self.WeighScent or function(n, t) return self:Appeal(n, t) end
 	self.ReachScent = self.ReachScent or function(n) return self:Smells(n) end
 	local whiff, strength = Scent.Strongest(pos, SNIFF_RADIUS, now, self.WeighScent, self.ReachScent)
-	if whiff and strength >= SCENT_THRESHOLD and (not node or strength > self:Appeal(node, now) * 1.5) then
+	local behind = node and whiff and whiff.trail == node.trail and whiff.time < node.time
+	if whiff and strength >= SCENT_THRESHOLD and not behind and (not node or strength > self:Appeal(node, now) * 1.5) then
 		node = whiff
 	end
 
