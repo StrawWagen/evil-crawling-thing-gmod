@@ -291,10 +291,10 @@ function ENT:FootTarget(root, rest, up)
 	local h = self.BodyHeight
 
 	local reach = self:Trace(root, rest)
-	if reach.Hit then return reach.HitPos, true end
+	if reach.Hit and not reach.HitSky then return reach.HitPos, true end
 
 	local down = self:Trace(rest, rest - up * (h * 1.6))
-	if down.Hit then return down.HitPos, true end
+	if down.Hit and not down.HitSky then return down.HitPos, true end
 
 	local back = self:Trace(rest - up * (h + 12), root - up * (h + 12))
 	if back.Hit then return back.HitPos, true end

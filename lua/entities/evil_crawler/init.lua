@@ -101,7 +101,7 @@ function ENT:SenseSurface(pos, fwd, left, up, move)
 
 	local function probe(from, dir, len, weight)
 		local tr = self:Trace(from, from + dir * len)
-		if not tr.Hit or tr.StartSolid then return false end
+		if not tr.Hit or tr.StartSolid or tr.HitSky or tr.HitNoDraw then return false end
 		if cv_probes:GetBool() then debugoverlay.Line(from, tr.HitPos, 0.05, PROBE_COLOR, true) end
 		local near = 1 - math.min(1, tr.HitPos:Distance(pos) / reach)
 		local w = weight * near * near
