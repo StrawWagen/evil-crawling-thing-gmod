@@ -30,6 +30,8 @@ local NOTICE = 0.35
 local LEAD = 0.6
 local REACHED = 72
 local SKIP_AHEAD = 260
+local RETRACE_TIME = 4
+local RETRACE_BACK = 30
 local LIFT = Vector(0, 0, 16)
 local SEARCH_TIME = 8
 local SEARCH_SPREAD = 300
@@ -233,13 +235,39 @@ end
 function ENT:FollowTrail(node)
 	local pos = self:GetPos()
 	while node.next and not node.next.dead do
-		if self:Reached(node.pos) or node.next.pos:Distance(pos) < SKIP_AHEAD and self:Smells(node.next) then
+		if self:Reached(node.pos) or not self.Retrace and node.next.pos:Distance(pos) < SKIP_AHEAD and self:Smells(node.next) then
 			node = node.next
 		else
 			break
 		end
 	end
 	return node
+end
+
+function ENT:Tread(node, now)
+	if self.Footing and self.Footing.trail ~= node.trail then self.Footing, self.FootAt = nil, now end
+	local foot, n = self.Footing, node
+	for _ = 1, 8 do
+		if not n or foot and n.time <= foot.time then return end
+		if self:Reached(n.pos) then
+			self.Footing, self.FootAt, self.ProgressTime = n, now, now
+			return
+		end
+		n = n.prev
+	end
+end
+
+function ENT:Backtrack(node)
+	if self.Footing then return self.Footing end
+	local pos, best, bestDist = self:GetPos(), nil, math.huge
+	local n = node.prev
+	for _ = 1, RETRACE_BACK do
+		if not n then break end
+		local d = n.pos:Distance(pos)
+		if d < bestDist and self:Smells(n) then best, bestDist = n, d end
+		n = n.prev
+	end
+	return best
 end
 
 function ENT:Around(center, spread)
@@ -325,18 +353,34 @@ function ENT:Ponder()
 	end
 
 	self.Spent = self.Spent or setmetatable({}, { __mode = "k" })
+	if self.State ~= "track" then self.Footing, self.FootAt, self.Retrace = nil, now, nil end
 	local node = self.Trail
-	if node and (node.dead or self:Appeal(node, now) < SCENT_THRESHOLD * 0.5) then node = nil end
-	self.WeighScent = self.WeighScent or function(n, t) return self:Appeal(n, t) end
-	self.ReachScent = self.ReachScent or function(n) return self:Smells(n) end
-	local whiff, strength = Scent.Strongest(pos, SNIFF_RADIUS, now, self.WeighScent, self.ReachScent)
-	local behind = node and whiff and whiff.trail == node.trail and whiff.time < node.time
-	if whiff and strength >= SCENT_THRESHOLD and not behind and (not node or strength > self:Appeal(node, now) * 1.5) then
-		node = whiff
+	if node and (node.dead or self:Appeal(node, now) < SCENT_THRESHOLD * 0.5) then node, self.Retrace = nil, nil end
+	if not self.Retrace then
+		self.WeighScent = self.WeighScent or function(n, t) return self:Appeal(n, t) end
+		self.ReachScent = self.ReachScent or function(n) return self:Smells(n) end
+		local whiff, strength = Scent.Strongest(pos, SNIFF_RADIUS, now, self.WeighScent, self.ReachScent)
+		local behind = node and whiff and whiff.trail == node.trail and whiff.time < node.time
+		if whiff and strength >= SCENT_THRESHOLD and not behind and (not node or strength > self:Appeal(node, now) * 1.5) then
+			node = whiff
+		end
 	end
 
 	if node then
 		node = self:FollowTrail(node)
+		self:Tread(node, now)
+		if self.Retrace and self.Footing and self.Footing.time >= self.Retrace.time then self.Retrace = nil end
+	end
+	if node and now - self.FootAt > RETRACE_TIME and not self:Reached(node.pos) then
+		local back = not self.Retrace and self:Backtrack(node)
+		if back and back ~= node then
+			self.Retrace, node, self.FootAt = node, back, now
+		else
+			self.Spent[node.trail] = node.trail.last.time
+			self.Retrace, node = nil, nil
+		end
+	end
+	if node then
 		if self.SniffNode ~= node then
 			self.SniffNode = not node.next and self:Reached(node.pos) and node or nil
 			self.SniffedAt = now
@@ -375,7 +419,7 @@ function ENT:CheckProgress(now)
 	if not self.Goal then return end
 
 	if not self.ProgressGoal or self.ProgressGoal:Distance(self.Goal) > 100 then
-		self.ProgressGoal, self.BestDist, self.ProgressTime, self.Snags = self.Goal, math.huge, now, 0
+		self.ProgressGoal, self.BestDist, self.ProgressTime = self.Goal, math.huge, now
 	end
 
 	if self.Still then
@@ -387,8 +431,7 @@ function ENT:CheckProgress(now)
 	if d < self.BestDist - 16 or d < REACHED then
 		self.BestDist, self.ProgressTime = d, now
 	elseif now - self.ProgressTime > STUCK_TIME then
-		self.BestDist, self.ProgressTime, self.Snags = d, now, self.Snags + 1
-		if self.Snags > 1 and self.State == "track" and self.Trail then self:Spend(self.Trail) end
+		self.BestDist, self.ProgressTime = d, now
 		if self.BodyUp.z < -0.5 then
 			self.LetGoUntil = now + 0.4
 		else
