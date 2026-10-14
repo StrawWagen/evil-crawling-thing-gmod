@@ -34,7 +34,7 @@ local SEARCH_TIME = 8
 local SEARCH_SPREAD = 300
 local STUCK_TIME = 2.5
 local HUNGRY_PULL = 2
-local FED_PULL = 0.3
+local SNIFF_TIME = 5
 local FEAR_PULL = 1.5
 local GRUDGE_PULL = 2.5
 local FLEE_TIME = 8
@@ -199,13 +199,23 @@ function ENT:Sense()
 end
 
 function ENT:Appeal(node, now)
-	local owner = node.trail.owner
-	if not node.npc and not (IsValid(owner) and self:Wants(owner)) then return 0 end
+	local trail, owner = node.trail, node.trail.owner
+	local spent = self.Spent[trail]
+	if not IsValid(owner) or spent and node.time <= spent then return 0 end
 	local w = 1
-	if node.npc then w = self:IsHungry() and HUNGRY_PULL or FED_PULL end
-	if node.fear then w = math.max(w, 1) * FEAR_PULL end
-	if self.Grudge and node.trail.owner == self.Grudge then w = math.max(w, 1) * GRUDGE_PULL end
+	if node.npc then
+		if not (self:IsHungry() and self:IsEdible(owner)) then return 0 end
+		w = HUNGRY_PULL
+	elseif not self:WouldTake(owner) then
+		return 0
+	end
+	if node.fear then w = w * FEAR_PULL end
+	if owner == self.Grudge then w = w * GRUDGE_PULL end
 	return Scent.Intensity(node, now) * w
+end
+
+function ENT:Spend(node)
+	self.Spent[node.trail] = math.max(self.Spent[node.trail] or node.time, node.time)
 end
 
 function ENT:Smells(node)
@@ -301,6 +311,7 @@ function ENT:Ponder()
 		self.SearchUntil = now + SEARCH_TIME
 	end
 
+	self.Spent = self.Spent or setmetatable({}, { __mode = "k" })
 	local node = self.Trail
 	if node and (node.dead or self:Appeal(node, now) < SCENT_THRESHOLD * 0.5) then node = nil end
 	self.WeighScent = self.WeighScent or function(n, t) return self:Appeal(n, t) end
@@ -312,6 +323,15 @@ function ENT:Ponder()
 
 	if node then
 		node = self:FollowTrail(node)
+		if self.SniffNode ~= node then
+			self.SniffNode = not node.next and self:Reached(node.pos) and node or nil
+			self.SniffedAt = now
+		elseif now - self.SniffedAt > SNIFF_TIME then
+			self:Spend(node)
+			node = nil
+		end
+	end
+	if node then
 		self.Trail = node
 		self:SetState("track")
 		self.Pace = RHYTHM.track.pace * Lerp(math.min(1, Scent.Intensity(node, now)), 0.6, 1)
@@ -341,7 +361,7 @@ function ENT:CheckProgress(now)
 	if not self.Goal then return end
 
 	if not self.ProgressGoal or self.ProgressGoal:Distance(self.Goal) > 100 then
-		self.ProgressGoal, self.BestDist, self.ProgressTime = self.Goal, math.huge, now
+		self.ProgressGoal, self.BestDist, self.ProgressTime, self.Snags = self.Goal, math.huge, now, 0
 	end
 
 	if self.Still then
@@ -353,7 +373,8 @@ function ENT:CheckProgress(now)
 	if d < self.BestDist - 16 or d < REACHED then
 		self.BestDist, self.ProgressTime = d, now
 	elseif now - self.ProgressTime > STUCK_TIME then
-		self.BestDist, self.ProgressTime = d, now
+		self.BestDist, self.ProgressTime, self.Snags = d, now, self.Snags + 1
+		if self.Snags > 1 and self.State == "track" and self.Trail then self:Spend(self.Trail) end
 		if self.BodyUp.z < -0.5 then
 			self.LetGoUntil = now + 0.4
 		else
