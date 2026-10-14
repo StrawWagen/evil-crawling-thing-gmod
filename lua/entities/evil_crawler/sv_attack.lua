@@ -97,7 +97,7 @@ function ENT:IsHungry()
 end
 
 function ENT:Wants(ply)
-	if EvilCrawler.IgnoresPlayers() or ply:InVehicle() or ply:HasGodMode() then return false end
+	if EvilCrawler.IgnoresPlayers() or ply:HasGodMode() then return false end
 	if ply:LookupBone("ValveBiped.Bip01_Spine2") == nil then return false end
 	local digesting = CurTime() - (self.FedAt or -math.huge) < EvilCrawler.Setting("digest_time")
 	return not digesting or ply == self.Grudge
@@ -109,7 +109,7 @@ end
 
 function ENT:CanAttack(ent)
 	if ent:WorldSpaceCenter():Distance(self:GetPos()) >= ATTACK_REACH then return false end
-	if self:Trace(self:GetPos(), ent:WorldSpaceCenter()).Hit then return false end
+	if not self:Clear(self:GetPos(), ent) then return false end
 	if ent:IsPlayer() then return self:WouldTake(ent) end
 	return self:IsHungry() and self:IsEdible(ent)
 end
@@ -247,10 +247,11 @@ function ENT:Skewer(npc, now)
 end
 
 function ENT:Seize(ply, now)
-	if not ply:Alive() or ply:InVehicle() or ply:HasGodMode() or ply:GetMoveType() == MOVETYPE_NOCLIP then
+	if not ply:Alive() or ply:HasGodMode() or ply:GetMoveType() == MOVETYPE_NOCLIP then
 		self:Release()
 		return
 	end
+	if ply:InVehicle() then ply:ExitVehicle() end
 	sound.Play(GRAB_SOUNDS[math.random(#GRAB_SOUNDS)], ply:WorldSpaceCenter(), 75, math.random(80, 95))
 
 	self.SeizedAt = ply:GetPos()
@@ -716,7 +717,7 @@ function ENT:UpdateAct(now)
 		end
 		if t >= IMPACT_TIME then
 			local center = victim:WorldSpaceCenter()
-			if center:Distance(self:GetPos()) >= MISS_REACH or self:Trace(self:GetPos(), center).Hit then
+			if center:Distance(self:GetPos()) >= MISS_REACH or not self:Clear(self:GetPos(), victim) then
 				self:Release()
 			elseif victim:IsPlayer() then
 				self:Seize(victim, now)

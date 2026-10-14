@@ -106,6 +106,15 @@ local function Perceivable(ent)
 		and ent:GetObserverMode() == OBS_MODE_NONE
 end
 
+local function Mover(ent)
+	return ent:IsPlayer() and ent:InVehicle() and ent:GetVehicle() or ent
+end
+
+function ENT:Clear(from, ent, to, mask)
+	local tr = self:Trace(from, to or ent:WorldSpaceCenter(), mask)
+	return not tr.Hit or IsValid(tr.Entity) and tr.Entity == Mover(ent)
+end
+
 function ENT:SurfaceDistance(point)
 	local to = point - self:GetPos()
 	return (to - self.BodyUp * to:Dot(self.BodyUp)):Length()
@@ -120,8 +129,9 @@ function ENT:Feels(ent, pos)
 	local center = ent:WorldSpaceCenter()
 	local d = center:Distance(pos)
 	if self.Spotted[ent] and self.InView[ent] then return true, d end
-	local tremor = d < TREMOR_RANGE and ent:IsOnGround() and ent:GetVelocity():Length() > TREMOR_SPEED
-	if (d < TOUCH_RANGE or tremor) and not self:Trace(pos, center).Hit then return true, d end
+	local body = Mover(ent)
+	local tremor = d < TREMOR_RANGE and (body ~= ent or ent:IsOnGround()) and body:GetVelocity():Length() > TREMOR_SPEED
+	if (d < TOUCH_RANGE or tremor) and self:Clear(pos, ent) then return true, d end
 	return false
 end
 
@@ -131,9 +141,9 @@ function ENT:Visibility(ent, pos, now)
 	local center = ent:WorldSpaceCenter()
 	local d = center:Distance(pos)
 	if d >= range then return 0 end
-	if self:Trace(pos, ent:EyePos(), MASK_OPAQUE).Hit and self:Trace(pos, center, MASK_OPAQUE).Hit then return 0 end
+	if not self:Clear(pos, ent, ent:EyePos(), MASK_OPAQUE) and not self:Clear(pos, ent, center, MASK_OPAQUE) then return 0 end
 
-	local speed = Creature(ent) and (ent.EvilCrawlerSpeed or 0) or ent:GetVelocity():Length()
+	local speed = Creature(ent) and (ent.EvilCrawlerSpeed or 0) or Mover(ent):GetVelocity():Length()
 	local v = Lerp(math.min(1, speed / SIGHT_RUN), SIGHT_STILL, 1)
 	v = v * math.min(1, 1 - (d - SIGHT_CLEAR) / math.max(1, range - SIGHT_CLEAR))
 	if ent:IsPlayer() and ent:Crouching() then v = v * SIGHT_CROUCH end
@@ -195,7 +205,7 @@ end
 function ENT:Lead(ent)
 	if not ent:IsPlayer() then return ent:GetPos() end
 	local from = ent:GetPos() + Vector(0, 0, 32)
-	local tr = self:Trace(from, from + ent:GetVelocity() * LEAD)
+	local tr = self:Trace(from, from + Mover(ent):GetVelocity() * LEAD)
 	return tr.HitPos + tr.HitNormal * 16 - Vector(0, 0, 32)
 end
 
@@ -837,7 +847,7 @@ local function Burnable(ent)
 	if not IsValid(ent) or not (ent:IsPlayer() or ent:IsNPC() or ent:IsNextBot()) then return false end
 	if ent.EvilCrawlerVictim or ent:IsFlagSet(FL_NOTARGET) then return false end
 	if ent:IsPlayer() then
-		return ent:Alive() and not EvilCrawler.IgnoresPlayers() and not ent:HasGodMode() and not ent:InVehicle()
+		return ent:Alive() and not EvilCrawler.IgnoresPlayers() and not ent:HasGodMode()
 			and ent:GetMoveType() ~= MOVETYPE_NOCLIP and ent:GetObserverMode() == OBS_MODE_NONE
 	end
 	return Creature(ent) and EvilCrawler.Living(ent) and ent:GetClass() ~= "npc_bullseye"
@@ -850,7 +860,7 @@ function ENT:Quarry()
 	for _, ent in ipairs(ents.FindInSphere(pos, bestDist)) do
 		if Burnable(ent) then
 			local d = ent:WorldSpaceCenter():Distance(pos)
-			if d < bestDist and not self:Trace(pos, ent:WorldSpaceCenter(), MASK_OPAQUE).Hit then best, bestDist = ent, d end
+			if d < bestDist and self:Clear(pos, ent, nil, MASK_OPAQUE) then best, bestDist = ent, d end
 		end
 	end
 	return best
@@ -873,7 +883,7 @@ function ENT:Rampage(now)
 		if not self.Goal or self:Reached(self.Goal) then self.Goal = self:Around(pos, 600) end
 		return true
 	end
-	if target:NearestPoint(pos):Distance(pos) < RAGE_REACH and not self:Trace(pos, target:WorldSpaceCenter(), MASK_OPAQUE).Hit then
+	if target:NearestPoint(pos):Distance(pos) < RAGE_REACH and self:Clear(pos, target, nil, MASK_OPAQUE) then
 		self:Sear(target)
 		return true
 	end

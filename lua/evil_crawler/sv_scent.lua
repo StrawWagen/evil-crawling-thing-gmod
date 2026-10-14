@@ -104,7 +104,6 @@ local function LeavesScent(ent)
 	local ply = ent
 	return ply:Alive()
 		and not (ai_ignoreplayers and ai_ignoreplayers:GetBool())
-		and not ply:InVehicle()
 		and ply:GetMoveType() ~= MOVETYPE_NOCLIP
 		and ply:GetObserverMode() == OBS_MODE_NONE
 end
