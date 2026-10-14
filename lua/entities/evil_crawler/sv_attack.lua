@@ -1,4 +1,5 @@
 local Victim = EvilCrawler.Victim
+local Creature = EvilCrawler.Creature
 local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
 	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
 local ACT_GRAPPLE, ACT_STUN, ACT_SEAR = EvilCrawler.ACT_GRAPPLE, EvilCrawler.ACT_STUN, EvilCrawler.ACT_SEAR
@@ -85,8 +86,8 @@ local MAX_BONES = 60
 local spat = {}
 
 function ENT:IsEdible(ent)
-	if not ent:IsNPC() or ent:Health() <= 0 or ent.EvilCrawlerVictim then return false end
-	if ent:GetMoveType() ~= MOVETYPE_STEP then return false end
+	if not Creature(ent) or not EvilCrawler.Living(ent) or ent.EvilCrawlerVictim then return false end
+	if ent:IsNPC() and ent:GetMoveType() ~= MOVETYPE_STEP then return false end
 	local size = ent:OBBMaxs() - ent:OBBMins()
 	return size.z >= 30 and size.z <= 100 and math.max(size.x, size.y) <= 60
 end
@@ -162,12 +163,12 @@ function ENT:Incinerate(victim)
 	dmg:SetInflictor(self)
 	dmg:SetDamagePosition(center)
 	victim:TakeDamageInfo(dmg)
-	if IsValid(victim) and not victim:IsPlayer() and victim:Health() > 0 then Dissolve(victim) end
+	if IsValid(victim) and not victim:IsPlayer() and EvilCrawler.Living(victim) then Dissolve(victim) end
 end
 
 function ENT:Release()
 	local victim = self:GetVictim()
-	if IsValid(victim) and (victim:IsNPC() or victim:IsPlayer()) and victim.EvilCrawlerVictim == self then
+	if IsValid(victim) and (Creature(victim) or victim:IsPlayer()) and victim.EvilCrawlerVictim == self then
 		victim.EvilCrawlerVictim = nil
 	end
 	if IsValid(victim) and victim:IsPlayer() then self:LetGo(victim) end
@@ -675,7 +676,7 @@ function ENT:UpdateAct(now)
 	end
 
 	if act == ACT_STRIKE then
-		if victim:Health() <= 0 then
+		if not EvilCrawler.Living(victim) then
 			self:Release()
 			return
 		end

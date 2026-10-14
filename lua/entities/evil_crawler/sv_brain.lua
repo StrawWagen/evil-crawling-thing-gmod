@@ -1,4 +1,5 @@
 local Scent = EvilCrawler.Scent
+local Creature = EvilCrawler.Creature
 
 local cv_puppet = CreateConVar("evil_crawler_puppet", "0", 0, "Crawlers follow their spawner's crosshair instead of thinking")
 local cv_debug = GetConVar("evil_crawler_debug_scent")
@@ -83,7 +84,7 @@ local STATE_COLOR = {
 
 local function Perceivable(ent)
 	if ent:IsFlagSet(FL_NOTARGET) then return false end
-	if ent:IsNPC() then return ent:Health() > 0 and not ent.EvilCrawlerVictim end
+	if Creature(ent) then return EvilCrawler.Living(ent) and not ent.EvilCrawlerVictim end
 	return ent:Alive()
 		and not ent.EvilCrawlerVictim
 		and ent:GetMoveType() ~= MOVETYPE_NOCLIP
@@ -117,7 +118,7 @@ function ENT:Visibility(ent, pos, now)
 	if d >= range then return 0 end
 	if self:Trace(pos, ent:EyePos(), MASK_OPAQUE).Hit and self:Trace(pos, center, MASK_OPAQUE).Hit then return 0 end
 
-	local speed = ent:IsNPC() and (ent.EvilCrawlerSpeed or 0) or ent:GetVelocity():Length()
+	local speed = Creature(ent) and (ent.EvilCrawlerSpeed or 0) or ent:GetVelocity():Length()
 	local v = Lerp(math.min(1, speed / SIGHT_RUN), SIGHT_STILL, 1)
 	v = v * math.min(1, 1 - (d - SIGHT_CLEAR) / math.max(1, range - SIGHT_CLEAR))
 	if ent:IsPlayer() and ent:Crouching() then v = v * SIGHT_CROUCH end
@@ -627,7 +628,7 @@ local function Burnable(ent)
 		return ent:Alive() and not EvilCrawler.IgnoresPlayers() and not ent:HasGodMode() and not ent:InVehicle()
 			and ent:GetMoveType() ~= MOVETYPE_NOCLIP and ent:GetObserverMode() == OBS_MODE_NONE
 	end
-	return (ent:IsNPC() or ent:IsNextBot()) and ent:Health() > 0 and ent:GetClass() ~= "npc_bullseye"
+	return Creature(ent) and EvilCrawler.Living(ent) and ent:GetClass() ~= "npc_bullseye"
 end
 
 function ENT:Quarry()

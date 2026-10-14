@@ -21,6 +21,15 @@ Scent.trails = Scent.trails or {}
 Scent.active = Scent.active or {}
 Scent.npcs = Scent.npcs or {}
 
+local function Creature(ent)
+	return ent:IsNPC() or ent:IsNextBot()
+end
+EvilCrawler.Creature = Creature
+
+function EvilCrawler.Living(ent)
+	return ent:Health() > 0 or ent:IsNextBot() and ent:GetMaxHealth() <= 0
+end
+
 local function Key(ix, iy, iz)
 	return (ix + 512) * 1048576 + (iy + 512) * 1024 + (iz + 512)
 end
@@ -68,9 +77,9 @@ end
 
 local function Strength(ply, now)
 	local s = 1
-	if ply:IsNPC() then
+	if Creature(ply) then
 		s = Lerp(math.Clamp(((ply.EvilCrawlerSpeed or 0) - NPC_SLOW) / (NPC_FAST - NPC_SLOW), 0, 1), 0.6, 1.6)
-		if ply:GetNPCState() == NPC_STATE_COMBAT then s = s + FIGHTING end
+		if ply:IsNPC() and ply:GetNPCState() == NPC_STATE_COMBAT then s = s + FIGHTING end
 		if Afraid(ply, now) then s = s + FEAR end
 	elseif ply:Crouching() then
 		s = 0.35
@@ -89,8 +98,8 @@ local ai_ignoreplayers = GetConVar("ai_ignoreplayers")
 
 local function LeavesScent(ent)
 	if ent:IsFlagSet(FL_NOTARGET) then return false end
-	if ent:IsNPC() then
-		return ent:Health() > 0 and not ent.EvilCrawlerVictim and ent:GetMoveType() == MOVETYPE_STEP
+	if Creature(ent) then
+		return EvilCrawler.Living(ent) and not ent.EvilCrawlerVictim and (ent:IsNextBot() or ent:GetMoveType() == MOVETYPE_STEP)
 	end
 	local ply = ent
 	return ply:Alive()
@@ -122,7 +131,7 @@ local function Drop(ply, now)
 
 	local node = {
 		pos = pos, time = now, strength = Strength(ply, now), trail = trail, prev = trail.last,
-		npc = ply:IsNPC(), fear = Afraid(ply, now),
+		npc = Creature(ply), fear = Afraid(ply, now),
 	}
 	if trail.last then trail.last.next = node else trail.first = node end
 	trail.last = node
@@ -185,7 +194,7 @@ end
 timer.Create("EvilCrawlerScent", DROP_INTERVAL, 0, function()
 	local now = CurTime()
 	local function visit(ent)
-		if ent:IsNPC() then
+		if Creature(ent) then
 			local pos = ent:GetPos()
 			ent.EvilCrawlerSpeed = ent.EvilCrawlerLastPos and pos:Distance(ent.EvilCrawlerLastPos) / DROP_INTERVAL or 0
 			ent.EvilCrawlerLastPos = pos
@@ -269,13 +278,13 @@ end
 timer.Create("EvilCrawlerShowScent", SHOW_INTERVAL, 0, ShowScent)
 
 hook.Add("EntityTakeDamage", "EvilCrawlerScent", function(ent)
-	if ent:IsPlayer() or ent:IsNPC() then ent.EvilCrawlerHurt = CurTime() end
+	if ent:IsPlayer() or Creature(ent) then ent.EvilCrawlerHurt = CurTime() end
 end)
 
 hook.Add("OnEntityCreated", "EvilCrawlerScent", function(ent)
-	if not ent:IsNPC() then return end
+	if not Creature(ent) then return end
 	timer.Simple(0, function()
-		if IsValid(ent) and ent:IsNPC() then Scent.npcs[ent] = true end
+		if IsValid(ent) and Creature(ent) then Scent.npcs[ent] = true end
 	end)
 end)
 
@@ -285,5 +294,5 @@ hook.Add("EntityRemoved", "EvilCrawlerScent", function(ent)
 end)
 
 for _, ent in ipairs(ents.GetAll()) do
-	if ent:IsNPC() then Scent.npcs[ent] = true end
+	if Creature(ent) then Scent.npcs[ent] = true end
 end

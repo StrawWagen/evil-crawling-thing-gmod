@@ -176,16 +176,23 @@ local function Pose(rag, npc)
 	end
 end
 
+local function Nothing() end
+
 local function Hide(npc)
 	npc.EvilCrawlerHadNoTarget = npc:IsFlagSet(FL_NOTARGET)
 	npc:SetNoDraw(true)
 	npc:DrawShadow(false)
 	npc:SetNotSolid(true)
+	npc.EvilCrawlerMoveType = npc:GetMoveType()
 	npc:SetMoveType(MOVETYPE_NONE)
 	npc:AddFlags(FL_NOTARGET)
 	npc:AddEFlags(EFL_NO_THINK_FUNCTION)
-	npc:ClearSchedule()
-	npc:SetEnemy(NULL)
+	if npc:IsNPC() then
+		npc:ClearSchedule()
+		npc:SetEnemy(NULL)
+	else
+		npc.BehaveUpdate, npc.Think = Nothing, Nothing
+	end
 	npc.EvilCrawlerPaused = npc.PauseAttacks
 	npc.PauseAttacks = true
 end
@@ -402,7 +409,7 @@ local function GetUp(rag, npc)
 	npc:SetAngles(Angle(0, math.Rand(0, 360), 0))
 	npc:SetColor(rag:GetColor())
 	npc:RemoveEFlags(EFL_NO_THINK_FUNCTION)
-	npc:SetMoveType(MOVETYPE_STEP)
+	npc:SetMoveType(npc.EvilCrawlerMoveType or MOVETYPE_STEP)
 	npc:SetNotSolid(false)
 	npc:SetNoDraw(false)
 	npc:DrawShadow(true)
@@ -413,7 +420,11 @@ local function GetUp(rag, npc)
 	npc.EvilCrawlerFearUntil = CurTime() + ESCAPE_FEAR
 	rag.EvilCrawlerOwner = nil
 	rag:Remove()
-	npc:SetSchedule(SCHED_RUN_RANDOM)
+	if npc:IsNPC() then
+		npc:SetSchedule(SCHED_RUN_RANDOM)
+	else
+		npc.BehaveUpdate, npc.Think = nil, nil
+	end
 end
 
 local function Update(rag, now)
@@ -504,7 +515,7 @@ hook.Add("EntityTakeDamage", "EvilCrawlerVictims", function(ent, dmg)
 	if ent.EvilCrawlerBody then return true end
 	if not Victim.Alive(ent) or dmg:IsDamageType(DMG_CRUSH) then return end
 	local attacker = dmg:GetAttacker()
-	if IsValid(attacker) and (attacker:IsPlayer() or attacker:IsNPC()) then
+	if IsValid(attacker) and (attacker:IsPlayer() or EvilCrawler.Creature(attacker)) then
 		Victim.Hurt(ent, dmg:GetDamage(), attacker)
 	end
 end)
