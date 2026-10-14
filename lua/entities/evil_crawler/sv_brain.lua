@@ -573,6 +573,7 @@ function ENT:Steer()
 end
 
 local EYE_FLAGS = 65536 + 131072
+local SCATTER_RANGE = 3000
 
 local function Disposition()
 	return EvilCrawler.Setting("npcs_fight") > 0 and D_HT or D_NU
@@ -589,6 +590,7 @@ function ENT:Expose()
 	eye:SetKeyValue("spawnflags", tostring(EYE_FLAGS))
 	eye:Spawn()
 	eye:Activate()
+	eye.HandlePerceivedRelationship = function() return self:HandlePerceivedRelationship() end
 	self:DeleteOnRemove(eye)
 	self.Eye = eye
 	self:AddEFlags(EFL_DONTBLOCKLOS)
@@ -631,7 +633,44 @@ cvars.AddChangeCallback("evil_crawler_npcs_fight", function()
 end, "EvilCrawlerEnemy")
 
 function ENT:HandlePerceivedRelationship()
-	return Disposition()
+	return self:Awake() and Disposition() or D_NU
+end
+
+function ENT:Scatter(now)
+	local pos, eye = self:GetPos(), self.Eye
+	Scent.Frighten(pos, SCATTER_RANGE, self.OutUntil - now)
+	self.Cowed = {}
+	for _, ent in ipairs(ents.FindInSphere(pos, SCATTER_RANGE)) do
+		if ent.IsDrGNextbot then
+			ent:SetEntityRelationship(self, D_FR, 3)
+			self.Cowed[ent] = true
+		elseif Fights(ent) and IsValid(eye) then
+			ent:AddEntityRelationship(eye, D_FR, 99)
+			self.Cowed[ent] = true
+			if ent.IsVJBaseSNPC then
+				ent:SetEnemy(NULL)
+				ent.TakingCoverT = self.OutUntil
+				if ent.SCHEDULE_COVER_ORIGIN then ent:SCHEDULE_COVER_ORIGIN("TASK_RUN_PATH") end
+			else
+				ent:SetEnemy(eye)
+				ent:UpdateEnemyMemory(eye, pos)
+				ent:SetSchedule(SCHED_RUN_FROM_ENEMY)
+			end
+		end
+	end
+end
+
+function ENT:Regroup()
+	if not self.Cowed then return end
+	local d = Disposition()
+	for ent in pairs(self.Cowed) do
+		if IsValid(ent) and ent.IsDrGNextbot then
+			ent:SetEntityRelationship(self, D_NU, 1)
+		elseif IsValid(ent) and IsValid(self.Eye) then
+			ent:AddEntityRelationship(self.Eye, d, 0)
+		end
+	end
+	self.Cowed = nil
 end
 
 timer.Create("EvilCrawlerEnemy", 1, 0, function()
@@ -720,6 +759,7 @@ function ENT:KnockOut(now)
 	self.OutUntil = now + EvilCrawler.Setting("knockout_time") * math.Rand(OUT_SPREAD[1], OUT_SPREAD[2])
 	self.LetGoUntil = self.OutUntil
 	self.Goal, self.Trail, self.DetourUntil = nil, nil, nil
+	self:Scatter(now)
 	self:EmitSound(OUT_SOUND, 80, math.random(70, 80))
 	self:EmitSound(PAIN_SOUNDS[math.random(#PAIN_SOUNDS)], 85, math.random(70, 85))
 	self.Breath = self.Breath or CreateSound(self, BREATH_LOOP)
@@ -728,6 +768,7 @@ end
 
 function ENT:Wake(now)
 	self:SetAct(EvilCrawler.ACT_NONE)
+	self:Regroup()
 	if self.Breath then self.Breath:FadeOut(0.5) end
 	self:EmitSound(WAKE_SOUND, 80, math.random(60, 70))
 	self.LetGoUntil = nil
@@ -748,6 +789,7 @@ function ENT:Die()
 	self:SetState("dead")
 	self.LetGoUntil = math.huge
 	if self.Breath then self.Breath:Stop() end
+	self:Regroup()
 	if IsValid(self.Eye) then self.Eye:Remove() end
 	for _ = 1, 4 do
 		local fx = EffectData()
