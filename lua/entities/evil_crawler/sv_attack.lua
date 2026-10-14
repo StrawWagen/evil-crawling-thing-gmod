@@ -24,6 +24,8 @@ local STAB_FORCE = 120
 local RIP_FORCE = 350
 local DRAINED = 40
 local TURN_SPEED = 35
+local SNAG_LAG = 300
+local SNAG_TIME = 1.5
 local DRAG_TIME = 15
 local ANGER_HUNGER = 0.5
 local LAIR_TRIES = 12
@@ -176,6 +178,7 @@ function ENT:Release()
 	self.BiteStage = nil
 	self.BitePart = nil
 	self.Devoured = nil
+	self.SnaggedSince = nil
 end
 
 local function Smooth(t)
@@ -455,6 +458,15 @@ function ENT:HoldCorpse(corpse, hold, stiffness, grip)
 			end
 			phys:SetVelocity(LerpVector(0.5 * grip, phys:GetVelocity(), (at - p) * stiffness + self.Vel))
 		end
+	end
+
+	local now = CurTime()
+	local first = held[1]
+	if self.HoldLag > SNAG_LAG or IsValid(first) and self:Trace(self:GetPos(), first:GetPos()).Hit then
+		self.SnaggedSince = self.SnaggedSince or now
+		if now - self.SnaggedSince > SNAG_TIME then self:Release() end
+	else
+		self.SnaggedSince = nil
 	end
 end
 
