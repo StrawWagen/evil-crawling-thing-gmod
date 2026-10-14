@@ -220,6 +220,7 @@ local function Body(ent)
 	rag:SetBloodColor(DONT_BLEED)
 	return rag
 end
+Victim.Body = Body
 
 local function Hold(rag, ent, holder, sedation)
 	ent.EvilCrawlerBody = rag

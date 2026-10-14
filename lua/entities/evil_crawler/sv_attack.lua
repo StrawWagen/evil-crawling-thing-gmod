@@ -45,6 +45,10 @@ local NIP_DAMAGE = 2
 local THROWN = { 420, 220 }
 local STUN_KNOCK = 300
 local SPOOKED = 60
+local FLUNG = { 900, 420, 120 }
+local SPIN = 900
+local BURN_TIME = 6
+local CHARRED = Color(70, 50, 45)
 
 local WINDUP_SOUNDS = { "npc/barnacle/barnacle_tongue_pull1.wav", "npc/barnacle/barnacle_tongue_pull2.wav" }
 local LUNGE_SOUND = "npc/zombie/claw_miss1.wav"
@@ -138,13 +142,16 @@ function ENT:Sear(victim)
 	self.Goal = nil
 end
 
-local function Dissolve(ent)
-	local dissolver = ents.Create("env_entity_dissolver")
-	if ent:GetName() == "" then ent:SetName("evil_crawler_sear" .. ent:EntIndex()) end
-	dissolver:SetKeyValue("dissolvetype", "0")
-	dissolver:Spawn()
-	dissolver:Fire("Dissolve", ent:GetName())
-	dissolver:Fire("Kill", "", 0.1)
+local function Fling(body, vel)
+	body:SetColor(CHARRED)
+	body:Ignite(BURN_TIME)
+	for i = 0, body:GetPhysicsObjectCount() - 1 do
+		local phys = body:GetPhysicsObjectNum(i)
+		if IsValid(phys) then
+			phys:SetVelocity(vel + VectorRand() * FLUNG[3])
+			phys:AddAngleVelocity(VectorRand() * SPIN)
+		end
+	end
 end
 
 function ENT:Incinerate(victim)
@@ -156,15 +163,46 @@ function ENT:Incinerate(victim)
 	fx:SetOrigin(center)
 	util.Effect("cball_explode", fx)
 	sound.Play(SEAR_SOUNDS[math.random(#SEAR_SOUNDS)], center, 85, math.random(90, 110))
+	sound.Play(RIP_SOUNDS[math.random(#RIP_SOUNDS)], center, 85, math.random(70, 85))
 
-	local dmg = DamageInfo()
-	dmg:SetDamage(math.max(victim:Health(), 1) * 10 + 1000)
-	dmg:SetDamageType(DMG_DISSOLVE)
-	dmg:SetAttacker(self)
-	dmg:SetInflictor(self)
-	dmg:SetDamagePosition(center)
-	victim:TakeDamageInfo(dmg)
-	if IsValid(victim) and not victim:IsPlayer() and EvilCrawler.Living(victim) then Dissolve(victim) end
+	local away = center - self:GetPos()
+	away.z = 0
+	away = away:LengthSqr() > 1 and away:GetNormalized() or self.Facing
+	local vel = away * FLUNG[1] + vector_up * FLUNG[2]
+
+	if victim:IsPlayer() and victim:InVehicle() then victim:ExitVehicle() end
+	if victim:IsNPC() and IsValid(victim:GetActiveWeapon()) then victim:DropWeapon() end
+	local body = Victim.Body(victim)
+	if not IsValid(body) then
+		if victim:IsPlayer() then victim:SetVelocity(vel) end
+		local dmg = DamageInfo()
+		dmg:SetDamage(math.max(victim:Health(), 1) * 10 + 1000)
+		dmg:SetDamageType(DMG_BURN)
+		dmg:SetDamageForce(vel * 100)
+		dmg:SetAttacker(self)
+		dmg:SetInflictor(self)
+		dmg:SetDamagePosition(center)
+		victim:TakeDamageInfo(dmg)
+		if IsValid(victim) and not victim:IsPlayer() and EvilCrawler.Living(victim) then
+			hook.Run("OnNPCKilled", victim, self, self)
+			victim:Remove()
+		end
+		return
+	end
+
+	Fling(body, vel)
+	if victim:IsPlayer() then
+		body:SetNW2Entity(EvilCrawler.OWNER_VAR, victim)
+		body:SetNW2Vector(EvilCrawler.COLOR_VAR, victim:GetPlayerColor())
+		victim:KillSilent()
+		victim:AddDeaths(1)
+		hook.Run("PlayerDeath", victim, self, self)
+		victim:Spectate(OBS_MODE_CHASE)
+		victim:SpectateEntity(body)
+		return
+	end
+	hook.Run("OnNPCKilled", victim, self, self)
+	victim:Remove()
 end
 
 function ENT:Release()
