@@ -73,6 +73,14 @@ local STUN_CRACK = "physics/flesh/flesh_squishy_impact_hard2.wav"
 local SEAR_SOUNDS = { "weapons/physcannon/energy_disintegrate4.wav", "weapons/physcannon/energy_disintegrate5.wav" }
 local SEAR_GRAB = "ambient/fire/ignite.wav"
 local SIDES = { Vector(1, 0, 0), Vector(-1, 0, 0), Vector(0, 1, 0), Vector(0, -1, 0) }
+local SKULL, RIB = "models/gibs/hgibs.mdl", "models/gibs/hgibs_rib.mdl"
+local SCAPULA, SPINE = "models/gibs/hgibs_scapula.mdl", "models/gibs/hgibs_spine.mdl"
+local BONES = { { SKULL }, { SCAPULA, SCAPULA, RIB }, { RIB, RIB, SPINE }, { SPINE } }
+local SPIT_DELAY = { 1, 2 }
+local SPIT_SPEED = { 120, 280 }
+local SPIT_SOUNDS = { "npc/barnacle/barnacle_bark1.wav", "npc/barnacle/barnacle_bark2.wav" }
+local MAX_BONES = 60
+local spat = {}
 
 function ENT:IsEdible(ent)
 	if not ent:IsNPC() or ent:Health() <= 0 or ent.EvilCrawlerVictim then return false end
@@ -529,6 +537,31 @@ function ENT:Consume(corpse, part, now)
 		self.FeedUntil = math.min(self.FeedUntil, now + FINISH_TIME)
 	end
 	Victim.Maimed(corpse, PARTS[part].grip[1], self)
+	self:Spit(BONES[part])
+end
+
+function ENT:Spit(models)
+	if not models then return end
+	timer.Simple(math.Rand(SPIT_DELAY[1], SPIT_DELAY[2]), function()
+		if not IsValid(self) then return end
+		local pos, up = self:GetPos(), self.BodyUp
+		sound.Play(SPIT_SOUNDS[math.random(#SPIT_SOUNDS)], pos, 70, math.random(80, 100), 0.8)
+		for _, model in ipairs(models) do
+			local bone = ents.Create("prop_physics")
+			bone:SetModel(model)
+			bone:SetPos(pos + VectorRand() * 4)
+			bone:SetAngles(AngleRand())
+			bone:Spawn()
+			bone:SetCollisionGroup(COLLISION_GROUP_DEBRIS)
+			local phys = bone:GetPhysicsObject()
+			if IsValid(phys) then
+				phys:SetVelocity((up + VectorRand() * 0.6):GetNormalized() * math.Rand(SPIT_SPEED[1], SPIT_SPEED[2]))
+				phys:AddAngleVelocity(VectorRand() * 600)
+			end
+			spat[#spat + 1] = bone
+			if #spat > MAX_BONES then SafeRemoveEntity(table.remove(spat, 1)) end
+		end
+	end)
 end
 
 function ENT:Feed(corpse, now)
