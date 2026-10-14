@@ -711,12 +711,12 @@ function ENT:Hurt(attacker, from)
 	end
 	if self:Raging(now) then
 		self:Blame(attacker)
-		self.Blows = (self.Blows or 0) + 1
+		self.Blows = (self.Blows or 0) + self:Weight(attacker)
 		local need = EvilCrawler.Setting("knockout_hits")
 		if need > 0 and self.Blows >= need then self:KnockOut(now) end
 		return
 	end
-	if self:Provoked(now) then
+	if self:Provoked(now, self:Weight(attacker)) then
 		self:Rage(attacker, now)
 		return
 	end
@@ -806,12 +806,18 @@ function ENT:Raging(now)
 	return now < self:GetRageUntil()
 end
 
-function ENT:Provoked(now)
+function ENT:Weight(attacker)
+	return IsValid(attacker) and attacker:IsPlayer() and 1 or EvilCrawler.Setting("npc_hits")
+end
+
+function ENT:Provoked(now, w)
 	if EvilCrawler.Setting("rage_time") <= 0 then return false end
 	self.Hits = self.Hits or {}
-	self.Hits[#self.Hits + 1] = now
-	while now - self.Hits[1] > RAGE_WINDOW do table.remove(self.Hits, 1) end
-	return #self.Hits >= EvilCrawler.Setting("rage_hits")
+	self.Hits[#self.Hits + 1] = { now, w }
+	while now - self.Hits[1][1] > RAGE_WINDOW do table.remove(self.Hits, 1) end
+	local sum = 0
+	for _, hit in ipairs(self.Hits) do sum = sum + hit[2] end
+	return sum >= EvilCrawler.Setting("rage_hits")
 end
 
 function ENT:Rage(by, now)

@@ -23,6 +23,8 @@ EvilCrawler.SETTINGS = {
 		help = "Hits inside 30 seconds that send a crawler into a rage" },
 	{ name = "rage_time", default = 10, min = 0, max = 60, decimals = 0, label = "Rage time",
 		help = "Seconds a rage lasts. At 0 it never rages" },
+	{ name = "npc_hits", default = 0.1, min = 0, max = 1, decimals = 2, label = "NPC hit weight",
+		help = "How much an NPC's hit counts toward rage and knockouts, next to a player's" },
 	{ name = "knockout_hits", default = 6, min = 0, max = 50, decimals = 0, label = "Knockout hits",
 		help = "Hits while it's raging that knock it out cold. At 0 it never goes down" },
 	{ name = "knockout_time", default = 25, min = 1, max = 120, decimals = 0, label = "Knockout time",
