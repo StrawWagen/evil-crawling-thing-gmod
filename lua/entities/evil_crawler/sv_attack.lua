@@ -625,12 +625,7 @@ function ENT:PonderAct(now)
 		return
 	end
 	if act == ACT_STRIKE then
-		local victim = self:GetVictim()
-		if IsValid(victim) and victim:IsPlayer() then
-			self.Goal, self.Pace = victim:GetPos(), 1
-		else
-			self.Goal = nil
-		end
+		self.Goal, self.Pace = self:GetVictim():GetPos(), 1
 	elseif act == ACT_GRAPPLE or act == ACT_SEAR then
 		self.Goal = nil
 	elseif act == ACT_STUN then
