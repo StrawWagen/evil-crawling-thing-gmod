@@ -28,6 +28,14 @@ local ROOM_MIN = 10
 local DUCK_RATE, RISE_RATE = 12, 4
 local FACING = -0.5
 local GAP_GRIP = 0.1
+local WATER = bit.bor(CONTENTS_WATER, CONTENTS_SLIME)
+local SWIM_PACE = 0.6
+local SWIM_PUSH = 9
+local SWIM_DRAG = 1.6
+local SWIM_TURN = 5
+local SURFACE = 8
+local SINK = Vector(0, 0, -20)
+local SINK_GRAVITY = 0.15
 
 local DOWN, RING = { Vector(0, 0, -1) }, {}
 for i = 0, 7 do
@@ -176,6 +184,10 @@ function ENT:Headroom(pos, up, height, dir)
 	return room
 end
 
+function ENT:Wet(at)
+	return bit.band(util.PointContents(at), WATER) ~= 0
+end
+
 function ENT:SafeMove(from, to)
 	local tr = self:Trace(from, to)
 	if not tr.Hit then return to end
@@ -192,17 +204,50 @@ function ENT:Crawl(dt)
 	local move = self.Vel:LengthSqr() > 100 and self.Vel:GetNormalized() or fwd
 	local normal, anchor, grip = self:SenseSurface(pos, fwd, up:Cross(fwd), up, move)
 
-	self.Falling = grip < (self.Falling and REGRIP or GRIP) or CurTime() < (self.LetGoUntil or 0)
+	local now = CurTime()
+	local loose = grip < (self.Falling and REGRIP or GRIP)
+	local held = now < (self.LetGoUntil or 0)
+	self.Falling = loose or held
+	local wet = self:Wet(pos)
+
+	local target, topSpeed, accel
+	if not self.Falling or wet and not held then target, topSpeed, accel = self:Steer() end
+	local swimming = self:GetSwimming()
+	local swim = wet and not held and (loose or not target and swimming
+		or target and self:Wet(target) and (swimming or (target - pos):Dot(up) > h * 0.5)) or false
+	self:SetSwimming(swim)
 
 	local speed = self.Vel:Length()
 	local rush = math.max(1, speed / RUSH_SPEED)
 	local crouch = math.Clamp((speed - CROUCH[1]) / (CROUCH[2] - CROUCH[1]), 0, 1) * CROUCH[3]
 
-	if not self.Falling then
+	if swim then
+		self.Falling, self.Gap = false, nil
+		local _, u = EvilCrawler.Stroke(self:GetSeed(), now)
+		local push = target and u < EvilCrawler.STROKE_PUSH
+		local want = SINK
+		if target then
+			local to = target - pos
+			want = push and to:GetNormalized() * topSpeed * SWIM_PACE * math.Clamp((to:Length() - 24) / (h * 1.5), 0, 1) or vector_origin
+		end
+		self.Vel = LerpVector(1 - math.exp(-dt * (push and SWIM_PUSH or SWIM_DRAG)), self.Vel, want)
+		local step = pos + self.Vel * dt
+		if self.Vel.z > 0 and not self:Wet(step + vector_up * SURFACE) then
+			self.Vel.z = 0
+			step = pos + self.Vel * dt
+		end
+		pos = self:SafeMove(pos, step)
+
+		if self.Vel:LengthSqr() > 400 then
+			fwd = LerpVector(1 - math.exp(-dt * SWIM_TURN), fwd, self.Vel:GetNormalized()):GetNormalized()
+		end
+		up = up - fwd * up:Dot(fwd)
+		if up:LengthSqr() < 1e-4 then up = fwd:Angle():Up() end
+		up:Normalize()
+	elseif not self.Falling then
 		up, fwd = Turn(up, fwd, normal, 1 - math.exp(-dt * STICK_RATE * rush))
 
 		local wish = Vector()
-		local target, topSpeed, accel = self:Steer()
 		if target then
 			local to = target - pos
 			local flat = to - up * to:Dot(up)
@@ -227,13 +272,14 @@ function ENT:Crawl(dt)
 	else
 		self.Gap = nil
 		up, fwd = Turn(up, fwd, vector_up, 1 - math.exp(-dt * 3))
-		self.Vel = self.Vel - vector_up * (GRAVITY * dt)
+		self.Vel = self.Vel - vector_up * (GRAVITY * (wet and SINK_GRAVITY or 1) * dt)
+		if wet then self.Vel = self.Vel * math.exp(-dt * SWIM_DRAG) end
 		local want = pos + self.Vel * dt
 		pos = self:SafeMove(pos, want)
 		if pos ~= want then self.Vel = self.Vel * math.exp(-dt * 6) end
 	end
 
-	if not self.Falling and self.Vel:LengthSqr() > 100 then
+	if not self.Falling and not swim and self.Vel:LengthSqr() > 100 then
 		fwd = LerpVector(1 - math.exp(-dt * 6 * rush), fwd, self.Vel:GetNormalized())
 	end
 	fwd = fwd - up * fwd:Dot(up)

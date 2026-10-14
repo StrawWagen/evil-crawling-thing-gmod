@@ -473,6 +473,10 @@ function ENT:CheckProgress(now)
 end
 
 function ENT:Unstick(to, now, time)
+	if self:GetSwimming() then
+		self:Veer(now, time)
+		return
+	end
 	if self:Leap(to, now) then return end
 	if self.BodyUp.z < -0.5 then
 		self.LetGoUntil = now + 0.4
@@ -528,7 +532,7 @@ function ENT:Veer(now, time)
 end
 
 function ENT:Overhead(prey, now)
-	if self:SurfaceDistance(prey:GetPos()) >= REACHED then
+	if self:GetSwimming() or self:SurfaceDistance(prey:GetPos()) >= REACHED then
 		self.OverSince = nil
 		return
 	end

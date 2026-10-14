@@ -19,6 +19,9 @@ local THREAT_ARC = 35
 local IK_ITERATIONS = 3
 local LOD_DISTANCE = 1500
 local MIN_SHRINK = 0.3
+local SWIM_STILL = 60
+local SWIM_FAST = 250
+local SWIM_OPEN = 0.65
 
 local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
 	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
@@ -30,6 +33,7 @@ local PULL_TIME = EvilCrawler.PULL_TIME
 local BITE_JAB, BITE_IN, BITE_RIP = EvilCrawler.BITE_JAB, EvilCrawler.BITE_IN, EvilCrawler.BITE_RIP
 local LUMP_TIME = EvilCrawler.LUMP_TIME
 local BiteCycle, BiteBone, CurrentPart = EvilCrawler.BiteCycle, EvilCrawler.BiteBone, EvilCrawler.CurrentPart
+local Stroke, STROKE_PUSH = EvilCrawler.Stroke, EvilCrawler.STROKE_PUSH
 local STAB_DEPTH = 10
 local SWALLOW_GAP = { 1.2, 2.2 }
 local ROLE_COUNT = { [ACT_STRIKE] = 1, [ACT_DRAG] = 1, [ACT_FEED] = 1 + EvilCrawler.FEEDERS, [ACT_GRAPPLE] = 1, [ACT_SEAR] = 4 }
@@ -45,6 +49,12 @@ local FOOT_SOUNDS = {
 	"npc/antlion/foot2.wav",
 	"npc/antlion/foot3.wav",
 	"npc/antlion/foot4.wav",
+}
+local SWIM_SOUNDS = {
+	"player/footsteps/wade1.wav",
+	"player/footsteps/wade2.wav",
+	"player/footsteps/wade3.wav",
+	"player/footsteps/wade4.wav",
 }
 
 local FLESH = Color(44, 34, 40)
@@ -371,6 +381,25 @@ function ENT:UpdateLimbs()
 	local loud = math.Clamp(speed / SKITTER[2], 0, 1)
 	local shake = 0.04 + 0.04 * agit
 	local squeezed = math.max(MIN_SHRINK, 1 - self:GetSqueeze())
+
+	local swimming = self:GetSwimming() and not limp
+	local axis, lift, side, stroke
+	if swimming then
+		axis = speed > SWIM_STILL and self.SmoothVel / speed or self:GetForward()
+		lift = self:GetUp()
+		lift = lift - axis * lift:Dot(axis)
+		if lift:LengthSqr() < 1e-4 then lift = axis:Angle():Up() end
+		lift:Normalize()
+		side = axis:Cross(lift)
+		local n, u = Stroke(self:GetSeed(), now)
+		local open = u < STROKE_PUSH and 1 - Smooth(u / STROKE_PUSH) or u < SWIM_OPEN and 0 or Smooth((u - SWIM_OPEN) / (1 - SWIM_OPEN))
+		local hover = 0.55 + 0.1 * math.sin(now * 1.5 + morph.phase)
+		stroke = Lerp(math.Clamp(speed / SWIM_FAST, 0, 1), hover, open)
+		if n ~= self.LastStroke and speed > SWIM_STILL then
+			sound.Play(SWIM_SOUNDS[math.random(#SWIM_SOUNDS)], pos, 60, math.random(70, 90), 0.4)
+		end
+		self.LastStroke = n
+	end
 	local twitchRate = 0.2 + 1.2 * agit
 
 	local threatYaw
@@ -428,6 +457,17 @@ function ENT:UpdateLimbs()
 			local tr = self:Trace(flat + up * (limb.length * 0.3), flat - up * limb.length)
 			st.foot = LerpVector(math.min(1, dt * 5), st.foot, tr.Hit and tr.HitPos or flat)
 			st.stepping = false
+		elseif swimming then
+			if st.stepping then
+				st.stepping = false
+				airborne = airborne - 1
+			end
+			local ring = side * math.cos(yaw) + lift * math.sin(yaw)
+			local open = math.Clamp(stroke + (limb.phase % 1 - 0.5) * 0.1, 0, 1)
+			local trail = pos - axis * (limb.length * 0.85) + ring * (limb.length * 0.2)
+			local flare = pos + axis * (limb.length * 0.1) + ring * (limb.length * 0.65)
+			st.foot = LerpVector(open, trail, flare) + Wobble(now * 3, limb.phase, limb.freq) * (limb.length * 0.05)
+			st.ring = ring
 		elseif st.stepping then
 			st.t = st.t + dt / (limb.stepTime * hurry)
 			if st.t >= 1 then
@@ -522,7 +562,8 @@ function ENT:UpdateLimbs()
 		while st.lumps[1] and now - st.lumps[1] > LUMP_TIME do table.remove(st.lumps, 1) end
 		st.blood = math.max(0, st.blood - dt * 0.02)
 
-		Pose(st, limb, root, foot, up * (limb.length * shrink * (act == ACT_OUT and 0.08 or 0.35)), now, shake, shrink)
+		local bow = swimming and st.ring * (limb.length * 0.1) or up * (limb.length * shrink * (act == ACT_OUT and 0.08 or 0.35))
+		Pose(st, limb, root, foot, bow, now, shake, shrink)
 
 		if holding and not st.holdSince then st.holdSince = now end
 		if not holding then st.holdSince = nil end

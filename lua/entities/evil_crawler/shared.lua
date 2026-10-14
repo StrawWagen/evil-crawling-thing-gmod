@@ -26,6 +26,13 @@ EvilCrawler.BITE_JAB = 0.5
 EvilCrawler.BITE_IN = 0.56
 EvilCrawler.BITE_RIP = 0.82
 EvilCrawler.LUMP_TIME = 1.2
+EvilCrawler.STROKE_PUSH = 0.3
+
+function EvilCrawler.Stroke(seed, t)
+	local x = t / (0.7 + seed % 7 * 0.05) + seed % 11 / 11
+	local n = math.floor(x)
+	return n, x - n
+end
 
 local B = "ValveBiped.Bip01_"
 EvilCrawler.PARTS = {
@@ -127,6 +134,7 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Float", 1, "RageUntil")
 	self:NetworkVar("Float", 2, "Squeeze")
 	self:NetworkVar("Entity", 1, "Victim")
+	self:NetworkVar("Bool", 0, "Swimming")
 end
 
 function ENT:Trace(from, to, mask)
