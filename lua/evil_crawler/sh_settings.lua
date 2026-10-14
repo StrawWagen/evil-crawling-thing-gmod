@@ -28,7 +28,7 @@ EvilCrawler.SETTINGS = {
 	{ name = "knockout_time", default = 25, min = 1, max = 120, decimals = 0, label = "Knockout time",
 		help = "Seconds, give or take a fifth, it stays down" },
 	{ name = "killable", default = 1, min = 0, max = 1, label = "Killable",
-		help = "Enough hits while it's knocked out kills it" },
+		help = "Enough hits from players while it's knocked out kills it" },
 	{ name = "escape_tighten", default = 0.5, min = 0, max = 3, decimals = 2, label = "Coil tightening",
 		help = "How much harder the coil is to fight out of for each time that player got away lately" },
 	{ name = "burst", default = 1100, min = 100, max = 3000, decimals = 0, label = "Dart speed",

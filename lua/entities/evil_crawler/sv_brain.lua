@@ -66,7 +66,6 @@ local WAKE_SOUND = "npc/barnacle/barnacle_tongue_pull1.wav"
 local RISE_TIME = 1.2
 local KILL_HITS = 6
 local DEATH_SOUND = "physics/flesh/flesh_bloody_break.wav"
-local CORPSE_TIME = 30
 local DOORS = { prop_door_rotating = true, func_door = true, func_door_rotating = true }
 local BASH_GAP = 2
 local BASH_SOUNDS = { "physics/wood/wood_box_impact_hard3.wav", "physics/wood/wood_panel_impact_hard1.wav" }
@@ -706,7 +705,7 @@ function ENT:Hurt(attacker, from)
 	if self.Off then return end
 	if self:GetAct() == EvilCrawler.ACT_OUT then
 		self:Blame(attacker)
-		self.Blows = self.Blows + 1
+		if IsValid(attacker) and attacker:IsPlayer() then self.Blows = self.Blows + 1 end
 		if EvilCrawler.Setting("killable") > 0 and self.Blows >= KILL_HITS then self:Die() end
 		return
 	end
@@ -800,7 +799,7 @@ function ENT:Die()
 	end
 	self:EmitSound(DEATH_SOUND, 80, math.random(80, 95))
 	self:EmitSound(PAIN_SOUNDS[math.random(#PAIN_SOUNDS)], 90, math.random(55, 65))
-	SafeRemoveEntityDelayed(self, CORPSE_TIME)
+	SafeRemoveEntityDelayed(self, EvilCrawler.CORPSE_TIME)
 end
 
 function ENT:Raging(now)

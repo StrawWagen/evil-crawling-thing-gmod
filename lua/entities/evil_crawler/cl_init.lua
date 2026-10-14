@@ -35,6 +35,7 @@ local ROLE_COUNT = { [ACT_STRIKE] = 1, [ACT_DRAG] = 1, [ACT_FEED] = 1 + EvilCraw
 local CURL = 0.25
 local SPRAWL = 0.85
 local DEATH_CURL = 1.5
+local CORPSE_TIME, ROT_TIME = EvilCrawler.CORPSE_TIME, EvilCrawler.ROT_TIME
 local COIL_POINTS = 26
 local REACH_POINTS = 8
 
@@ -525,7 +526,7 @@ function ENT:UpdateLimbs()
 	end
 end
 
-local drawing, drawNow, drawHeat
+local drawing, drawNow, drawHeat, drawRot
 
 local function LimbRadius(f, limb)
 	local r = limb.width * (1 - 0.9 * f ^ 1.3)
@@ -537,7 +538,7 @@ local function LimbRadius(f, limb)
 		local d = (f - (1 - (drawNow - born) / LUMP_TIME)) / 0.07
 		r = r + limb.width * 0.9 * math.exp(-d * d)
 	end
-	return r
+	return r * drawRot
 end
 
 local function LimbColor(f, limb)
@@ -563,6 +564,11 @@ function ENT:Draw()
 
 	drawNow = UnPredictedCurTime()
 	drawHeat = (self.Heat or 0) * (0.85 + 0.15 * math.sin(drawNow * 23 + math.sin(drawNow * 7) * 2))
+	drawRot = 1
+	if self:GetAct() == ACT_DEAD then
+		drawRot = 1 - Smooth(math.Clamp((drawNow - self:GetActStart() - (CORPSE_TIME - ROT_TIME)) / ROT_TIME, 0, 1))
+		if drawRot <= 0 then return end
+	end
 	Flesh.SampleLight(pos, drawHeat)
 	render.SetMaterial(Flesh.Material)
 	for _, limb in ipairs(morph.legs) do
