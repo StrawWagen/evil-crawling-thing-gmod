@@ -94,12 +94,11 @@ end
 
 function ENT:Feels(ent, pos)
 	if not Perceivable(ent) or (ent:IsPlayer() and not self:Wants(ent)) then return false end
-	local d = ent:WorldSpaceCenter():Distance(pos)
-	if d < TOUCH_RANGE then return true, d end
+	local center = ent:WorldSpaceCenter()
+	local d = center:Distance(pos)
 	if self.Spotted[ent] and self.InView[ent] then return true, d end
-	if d < TREMOR_RANGE and ent:IsOnGround() and ent:GetVelocity():Length() > TREMOR_SPEED then
-		return not self:Trace(pos, ent:WorldSpaceCenter()).Hit, d
-	end
+	local tremor = d < TREMOR_RANGE and ent:IsOnGround() and ent:GetVelocity():Length() > TREMOR_SPEED
+	if (d < TOUCH_RANGE or tremor) and not self:Trace(pos, center).Hit then return true, d end
 	return false
 end
 
@@ -608,7 +607,7 @@ function ENT:Rampage(now)
 		if not self.Goal or self:Reached(self.Goal) then self.Goal = self:Around(pos, 600) end
 		return true
 	end
-	if target:NearestPoint(pos):Distance(pos) < RAGE_REACH then
+	if target:NearestPoint(pos):Distance(pos) < RAGE_REACH and not self:Trace(pos, target:WorldSpaceCenter(), MASK_OPAQUE).Hit then
 		self:Sear(target)
 		return true
 	end

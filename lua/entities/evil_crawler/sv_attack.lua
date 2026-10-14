@@ -98,6 +98,7 @@ end
 
 function ENT:CanAttack(ent)
 	if ent:WorldSpaceCenter():Distance(self:GetPos()) >= ATTACK_REACH then return false end
+	if self:Trace(self:GetPos(), ent:WorldSpaceCenter()).Hit then return false end
 	if ent:IsPlayer() then return self:WouldTake(ent) end
 	return self:IsHungry() and self:IsEdible(ent)
 end
@@ -639,7 +640,8 @@ function ENT:UpdateAct(now)
 			sound.Play(LUNGE_SOUND, self:GetPos(), 75, math.random(60, 75))
 		end
 		if t >= IMPACT_TIME then
-			if victim:WorldSpaceCenter():Distance(self:GetPos()) >= MISS_REACH then
+			local center = victim:WorldSpaceCenter()
+			if center:Distance(self:GetPos()) >= MISS_REACH or self:Trace(self:GetPos(), center).Hit then
 				self:Release()
 			elseif victim:IsPlayer() then
 				self:Seize(victim, now)
