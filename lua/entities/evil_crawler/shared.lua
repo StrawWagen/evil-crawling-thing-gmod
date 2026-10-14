@@ -15,6 +15,7 @@ EvilCrawler.STRIKE_LUNGE = 0.08
 EvilCrawler.WRAP_TIME = 0.15
 EvilCrawler.PULL_TIME = 2
 EvilCrawler.SEAR_TIME = 0.3
+EvilCrawler.GRAVITY = 600
 
 EvilCrawler.FEEDERS = 4
 EvilCrawler.BITE_JAB = 0.5

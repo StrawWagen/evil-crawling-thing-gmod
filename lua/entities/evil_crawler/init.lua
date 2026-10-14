@@ -12,7 +12,7 @@ include("sv_attack.lua")
 
 local cv_probes = CreateConVar("evil_crawler_debug_probes", "0", 0, "Draw surface probes (needs developer 1)")
 
-local GRAVITY = 600
+local GRAVITY = EvilCrawler.GRAVITY
 local STICK_RATE = 8
 local HOLD_RATE = 10
 local GRIP = 0.05

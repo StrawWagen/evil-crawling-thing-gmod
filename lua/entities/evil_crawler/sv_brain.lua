@@ -39,6 +39,10 @@ local HUNT_MEMORY = 4
 local LOST_MEMORY = 20
 local LOST_PULL = 3
 local STUCK_TIME = 2.5
+local LEAP_RANGE = 800
+local LEAP_SPEED = 600
+local LEAP_ARCS = { 1, 1.5 }
+local LEAP_GAP = 3
 local HUNGRY_PULL = 2
 local SNIFF_TIME = 5
 local FEAR_PULL = 1.5
@@ -99,7 +103,7 @@ function ENT:SurfaceDistance(point)
 end
 
 function ENT:Reached(point)
-	return self:SurfaceDistance(point) < REACHED
+	return self:SurfaceDistance(point) < REACHED and self:GetPos():Distance(point) < REACHED + self.BodyHeight
 end
 
 function ENT:Feels(ent, pos)
@@ -428,16 +432,49 @@ function ENT:CheckProgress(now)
 	end
 
 	local d = self:SurfaceDistance(self.Goal)
-	if d < self.BestDist - 16 or d < REACHED then
+	if d < self.BestDist - 16 or self:Reached(self.Goal) then
 		self.BestDist, self.ProgressTime = d, now
 	elseif now - self.ProgressTime > STUCK_TIME then
 		self.BestDist, self.ProgressTime = d, now
-		if self.BodyUp.z < -0.5 then
-			self.LetGoUntil = now + 0.4
-		else
-			self:Veer(now, 1.5)
+		self:Unstick(self.Goal, now, 1.5)
+	end
+end
+
+function ENT:Unstick(to, now, time)
+	if self:Leap(to, now) then return end
+	if self.BodyUp.z < -0.5 then
+		self.LetGoUntil = now + 0.4
+	else
+		self:Veer(now, time)
+	end
+end
+
+function ENT:Leap(to, now)
+	if now < (self.NextLeap or 0) or self:GetAct() ~= EvilCrawler.ACT_NONE then return false end
+	local from = self:GetPos()
+	local d = to + LIFT - from
+	local dist = d:Length()
+	if dist > LEAP_RANGE or dist < REACHED then return false end
+	local g = EvilCrawler.GRAVITY
+	for _, arc in ipairs(LEAP_ARCS) do
+		local t = math.max(0.35, dist / LEAP_SPEED) * arc
+		local vel = d / t + Vector(0, 0, g * t / 2)
+		local last, clear = from, true
+		for i = 1, 6 do
+			local s = t * i / 6
+			local p = from + vel * s - Vector(0, 0, g * s * s / 2)
+			if self:Trace(last, p).Hit then clear = false break end
+			last = p
+		end
+		if clear then
+			self.Vel = vel
+			self.LetGoUntil = now + t * 0.6
+			self.NextLeap = now + t + LEAP_GAP
+			self.ProgressTime = now + t
+			return true
 		end
 	end
+	return false
 end
 
 function ENT:Bash(door, at)
@@ -459,19 +496,19 @@ function ENT:Veer(now, time)
 end
 
 function ENT:Overhead(prey, now)
-	if not self:Reached(prey:GetPos()) then
+	if self:SurfaceDistance(prey:GetPos()) >= REACHED then
 		self.OverSince = nil
 		return
 	end
-	if (prey:WorldSpaceCenter() - self:GetPos()):Dot(self.BodyUp) < 0 then
-		self.LetGoUntil = now + 0.4
+	if (prey:WorldSpaceCenter() - self:GetPos()):Dot(self.BodyUp) < -self.BodyHeight then
 		self.OverSince = nil
+		self:Unstick(prey:GetPos(), now, 0.4)
 		return
 	end
 	self.OverSince = self.OverSince or now
 	if now - self.OverSince > EvilCrawler.Setting("reroute_time") then
 		self.OverSince = nil
-		self:Veer(now, 0.4)
+		self:Unstick(prey:GetPos(), now, 0.4)
 	end
 end
 
