@@ -293,6 +293,17 @@ function ENT:Backtrack(node)
 	return best
 end
 
+function ENT:Pickup(ent, at)
+	local trail = IsValid(ent) and Scent.active[ent]
+	local n, best, bestDist = trail and trail.last, nil, SNIFF_RADIUS
+	while n do
+		local d = n.pos:Distance(at)
+		if d < bestDist then best, bestDist = n, d end
+		n = n.prev
+	end
+	return best
+end
+
 function ENT:Around(center, spread)
 	local offset = VectorRand() * spread
 	return center + offset - self.BodyUp * offset:Dot(self.BodyUp)
@@ -345,6 +356,7 @@ function ENT:Ponder()
 			return
 		end
 		self:SetState("hunt")
+		self.Trail = nil
 		self.Goal = prey:GetPos()
 		self.LastKnown = self:Lead(prey)
 		self.Hunted, self.SensedAt = prey, now
@@ -359,6 +371,7 @@ function ENT:Ponder()
 		self:SetState("search")
 		self.Goal = self.LastKnown
 		self.SearchUntil = now + SEARCH_TIME
+		self.Trail = self:Pickup(self.Hunted, self.LastKnown)
 	end
 
 	local glimpse = self:Glimpse()
