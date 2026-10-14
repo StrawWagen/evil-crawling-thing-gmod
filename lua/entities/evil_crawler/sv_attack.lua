@@ -207,6 +207,7 @@ function ENT:Strike(npc)
 	local corpse = Victim.Grab(npc, self)
 	if not IsValid(corpse) then
 		self:Release()
+		self:Skewer(npc, now)
 		return
 	end
 	sound.Play(GRAB_SOUNDS[math.random(#GRAB_SOUNDS)], center, 75, math.random(80, 95))
@@ -215,6 +216,34 @@ function ENT:Strike(npc)
 	self.CarryDir = dir
 	self.Eaten = 0
 	self:StartDrag(now)
+end
+
+function ENT:Skewer(npc, now)
+	local center = npc:WorldSpaceCenter()
+	local fx = EffectData()
+	fx:SetOrigin(center)
+	fx:SetNormal(self.BodyUp)
+	fx:SetScale(10)
+	fx:SetColor(BLOOD_COLOR_RED)
+	fx:SetFlags(7)
+	util.Effect("bloodspray", fx)
+	util.Effect("BloodImpact", fx)
+	sound.Play(RIP_SOUNDS[math.random(#RIP_SOUNDS)], center, 80, math.random(85, 100))
+	sound.Play(CRUNCH_SOUNDS[math.random(#CRUNCH_SOUNDS)], center, 75, math.random(80, 95))
+
+	local dmg = DamageInfo()
+	dmg:SetDamage(math.max(npc:Health(), 1) * 10 + 1000)
+	dmg:SetDamageType(DMG_SLASH)
+	dmg:SetAttacker(self)
+	dmg:SetInflictor(self)
+	dmg:SetDamagePosition(center)
+	npc:TakeDamageInfo(dmg)
+	if IsValid(npc) and EvilCrawler.Living(npc) then
+		hook.Run("OnNPCKilled", npc, self, self)
+		npc:Remove()
+	end
+	self:Spit(BONES[1])
+	self:Sate(now)
 end
 
 function ENT:Seize(ply, now)
