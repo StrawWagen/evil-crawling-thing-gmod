@@ -49,6 +49,9 @@ local FEAR_PULL = 1.5
 local GRUDGE_PULL = 2.5
 local FLEE_TIME = 8
 local HIDE_SPREAD = { 2 / 3, 4 / 3 }
+local HIDE_SIGHT = 1500
+local HIDE_CEILING = 3
+local SEEN_RESET = 1
 local ANGER_MAX = 3
 local ANGER_FADE = 180
 local ANGER_PACE = 0.15
@@ -754,10 +757,7 @@ function ENT:Hurt(attacker, from)
 	end
 
 	self:Enrage(attacker, now)
-	self:SetPrey(NULL)
-	self:SetState("flee")
-	self.Goal = self:FindLair(IsValid(attacker) and attacker:EyePos() or from)
-	self.FleeUntil = now + FLEE_TIME
+	self:Flee(IsValid(attacker) and attacker:EyePos() or from, now)
 	self.Trail = nil
 	self.DetourUntil = nil
 end
@@ -886,10 +886,7 @@ end
 function ENT:Rampage(now)
 	if not self:Raging(now) then
 		if self.Roar then self.Roar:FadeOut(1) end
-		self:SetPrey(NULL)
-		self:SetState("flee")
-		self.Goal = self:FindLair()
-		self.FleeUntil = now + FLEE_TIME
+		self:Flee(nil, now)
 		return false
 	end
 
@@ -951,15 +948,46 @@ hook.Add("EntityFireBullets", "EvilCrawlerShot", function(shooter, data)
 	return true
 end)
 
+function ENT:Flee(threat, now, slink)
+	self:SetPrey(NULL)
+	self:SetState("flee")
+	self.Goal = self:FindLair(threat)
+	self.FleeUntil = now + FLEE_TIME
+	self.Slunk = slink
+end
+
+function ENT:Watcher()
+	local pos = self:GetPos()
+	for _, ent in ipairs(ents.FindInSphere(pos, HIDE_SIGHT)) do
+		if (ent:IsPlayer() or Creature(ent)) and ent:GetClass() ~= "npc_bullseye" and Perceivable(ent)
+			and not self:Trace(ent:EyePos(), pos, MASK_OPAQUE).Hit then
+			return ent
+		end
+	end
+end
+
 function ENT:LyingLow(now)
 	if self.State == "flee" then
 		if self.Goal and not self:Reached(self.Goal) and now < self.FleeUntil then return true end
 		self:SetState("hide")
-		self.HideUntil = now + EvilCrawler.Setting("hide_time") * math.Rand(HIDE_SPREAD[1], HIDE_SPREAD[2])
+		if not self.Slunk then
+			self.RestNeed = EvilCrawler.Setting("hide_time") * math.Rand(HIDE_SPREAD[1], HIDE_SPREAD[2])
+			self.HideUntil = now + self.RestNeed * HIDE_CEILING
+		end
+		self.Rest, self.RestAt, self.SeenSince = 0, now, nil
 	end
 	if self.State ~= "hide" then return false end
-	if now < self.HideUntil then
+	if self.Rest < self.RestNeed and now < self.HideUntil then
 		self.Goal = nil
+		local watcher = self:Watcher()
+		if watcher then
+			self.SeenSince = self.SeenSince or now
+			if now - self.SeenSince > SEEN_RESET then self:Flee(watcher:EyePos(), now, true) end
+		else
+			self.Rest = self.Rest + now - self.RestAt
+			self.SeenSince = nil
+		end
+		self.RestAt = now
 		return true
 	end
 	self:SetState("roam")
