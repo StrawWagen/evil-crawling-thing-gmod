@@ -23,6 +23,8 @@ EvilCrawler.SETTINGS = {
 		help = "Seconds a meal keeps a crawler from going after NPCs. Anger shortens it" },
 	{ name = "hide_time", default = 40, min = 0, max = 180, decimals = 0, label = "Hide time",
 		help = "Seconds, give or take a third, a crawler has to stay unseen after it's hurt before coming back" },
+	{ name = "flee_hits", default = 1, min = 1, max = 50, decimals = 0, label = "Flee hits",
+		help = "Hits inside 30 seconds before a crawler runs off to hide" },
 	{ name = "rage_hits", default = 6, min = 1, max = 50, decimals = 0, label = "Rage hits",
 		help = "Hits inside 30 seconds that send a crawler into a rage" },
 	{ name = "rage_time", default = 10, min = 0, max = 60, decimals = 0, label = "Rage time",

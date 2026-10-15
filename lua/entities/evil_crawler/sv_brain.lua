@@ -752,13 +752,14 @@ function ENT:Hurt(attacker, from)
 		self:Rage(attacker, now)
 		return
 	end
-	if self:GetAct() ~= EvilCrawler.ACT_NONE then self:Release() end
 	if self.State == "flee" then
 		if IsValid(attacker) and attacker ~= self and not attacker:IsWorld() then self.Grudge = attacker end
 		return
 	end
-
 	self:Enrage(attacker, now)
+	if not self:Flinches(now) then return end
+
+	if self:GetAct() ~= EvilCrawler.ACT_NONE then self:Release() end
 	self:Flee(IsValid(attacker) and attacker:EyePos() or from, now)
 	self.Trail = nil
 	self.DetourUntil = nil
@@ -847,6 +848,14 @@ function ENT:Provoked(now, w)
 	local sum = 0
 	for _, hit in ipairs(self.Hits) do sum = sum + hit[2] end
 	return sum >= EvilCrawler.Setting("rage_hits")
+end
+
+function ENT:Flinches(now)
+	if now - (self.StungAt or -math.huge) > RAGE_WINDOW then self.Stings = 0 end
+	self.Stings, self.StungAt = self.Stings + 1, now
+	if self.Stings < EvilCrawler.Setting("flee_hits") then return false end
+	self.Stings = 0
+	return true
 end
 
 function ENT:Rage(by, now)
