@@ -203,7 +203,6 @@ function ENT:Trace(from, to, mask)
 	return result
 end
 
-
 function ENT:TraceMyTbl(myTbl, from, to, mask)
 	mask = mask or MASK_SOLID
 
