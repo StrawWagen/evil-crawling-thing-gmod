@@ -146,30 +146,30 @@ local isPlayer
 
 -- 2x as fast as :IsNPC(), which isnt really much faster but hey. credit to zaurzo for the method
 do
-	local npcMeta = FindMetaTable( "NPC" )
-	local nextbotMeta = FindMetaTable( "NextBot" )
-	local plyMeta = FindMetaTable( "Player" )
+	local npcMeta = FindMetaTable("NPC")
+	local nextbotMeta = FindMetaTable("NextBot")
+	local plyMeta = FindMetaTable("Player")
 	local getmetatable = getmetatable
 
-	isNpcEnt = function( ent )
-		return getmetatable( ent ) == npcMeta
+	isNpcEnt = function(ent)
+		return getmetatable(ent) == npcMeta
 	end
-	isNextbotEnt = function( ent ) -- ditto
-		return getmetatable( ent ) == nextbotMeta
-	end
-
-	isNextbotOrNpcEnt = function( ent )
-		return isNpcEnt( ent ) or isNextbotEnt( ent )
-	end
-	function ENT:IsNextbotOrNpcEnt( ent )
-		return isNextbotOrNpcEnt( ent )
+	isNextbotEnt = function(ent) -- ditto
+		return getmetatable(ent) == nextbotMeta
 	end
 
-	isPlayer = function( ent )
-		return getmetatable( ent ) == plyMeta
+	isNextbotOrNpcEnt = function(ent)
+		return isNpcEnt(ent) or isNextbotEnt(ent)
 	end
-	function ENT:IsPlyNoIndex( ent )
-		return isPlayer( ent )
+	function ENT:IsNextbotOrNpcEnt(ent)
+		return isNextbotOrNpcEnt(ent)
+	end
+
+	isPlayer = function(ent)
+		return getmetatable(ent) == plyMeta
+	end
+	function ENT:IsPlyNoIndex(ent)
+		return isPlayer(ent)
 	end
 end
 
