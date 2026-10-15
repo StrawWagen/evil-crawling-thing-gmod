@@ -179,7 +179,7 @@ local COLLISION_GROUP_DEBRIS = COLLISION_GROUP_DEBRIS
 
 ENT.DefaultTraceFilter = function(e)
 	if e == traceOwner then return end
-	if isNpcEnt(e) or isNextbotEnt(e) then return end
+	if isPlayerEnt(e) or isNpcEnt(e) or isNextbotEnt(e) then return end
 	if entMeta.IsRagdoll(e) then return end
 	if entMeta.GetCollisionGroup(e) == COLLISION_GROUP_DEBRIS then return end
 	return true
