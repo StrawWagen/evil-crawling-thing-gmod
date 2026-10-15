@@ -78,6 +78,7 @@ local RHYTHM = {
 	search = { pace = 0.55, go = { 0.3, 0.8 }, stop = { 0.5, 1.6 } },
 	track = { pace = 0.7, go = { 0.4, 1.1 }, stop = { 0.3, 1.2 } },
 	hunt = { pace = 1, go = { 0.6, 1.5 }, stop = { 0.08, 0.3 }, freeze = { 0.3, 0.7 } },
+	chase = { pace = 1, go = { 0.6, 1.5 }, stop = { 0.08, 0.3 } },
 	strike = { pace = 0 },
 	drag = { pace = 1.15 },
 	feed = { pace = 0 },
@@ -91,13 +92,14 @@ local RHYTHM = {
 	dead = { pace = 0 },
 }
 local MOOD = {
-	roam = 0, search = 1, track = 1, hunt = 2, strike = 2, drag = 2, feed = 1, flee = 2, hide = 0, grapple = 2,
+	roam = 0, search = 1, track = 1, chase = 2, hunt = 2, strike = 2, drag = 2, feed = 1, flee = 2, hide = 0, grapple = 2,
 	stunned = 0, watch = 2, rage = 2, out = 0, dead = 0,
 }
-local CHASING = { search = true, track = true, hunt = true }
+local CHASING = { search = true, track = true, chase = true, hunt = true }
+local TRAILING = { track = true, chase = true }
 local STATE_COLOR = {
 	roam = Color(120, 120, 120), search = Color(255, 200, 0), track = Color(255, 120, 0), hunt = Color(255, 0, 0),
-	flee = Color(0, 200, 255), hide = Color(0, 80, 160), watch = Color(255, 0, 255), rage = Color(255, 60, 0),
+	chase = Color(255, 60, 60), flee = Color(0, 200, 255), hide = Color(0, 80, 160), watch = Color(255, 0, 255), rage = Color(255, 60, 0),
 }
 
 local function Perceivable(ent)
@@ -394,7 +396,7 @@ function ENT:Ponder()
 	end
 
 	self.Spent = self.Spent or setmetatable({}, { __mode = "k" })
-	if self.State ~= "track" then self.Footing, self.FootAt, self.Retrace = nil, now, nil end
+	if not TRAILING[self.State] then self.Footing, self.FootAt, self.Retrace = nil, now, nil end
 	local node = self.Trail
 	if node and (node.dead or self:Appeal(node, now) < SCENT_THRESHOLD * 0.5) then node, self.Retrace = nil, nil end
 	if not self.Retrace then
@@ -432,8 +434,12 @@ function ENT:Ponder()
 	end
 	if node then
 		self.Trail = node
-		self:SetState("track")
-		self.Pace = RHYTHM.track.pace * Lerp(math.min(1, Scent.Intensity(node, now)), 0.6, 1)
+		if node.trail.owner == self.Hunted and now - self.SensedAt < LOST_MEMORY then
+			self:SetState("chase")
+		else
+			self:SetState("track")
+			self.Pace = RHYTHM.track.pace * Lerp(math.min(1, Scent.Intensity(node, now)), 0.6, 1)
+		end
 		if node.next or not self:Reached(node.pos) then
 			self.Goal = node.pos
 		elseif not self.Goal or self:Reached(self.Goal) or self.Goal:Distance(node.pos) > 200 then
