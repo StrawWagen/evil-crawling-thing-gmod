@@ -308,16 +308,16 @@ local function Coil(st, leg, role, root, a, b, r, bulge, t)
 	end
 end
 
-function ENT:FootTarget(root, rest, up)
-	local h = self.BodyHeight
+function ENT:FootTarget(myTbl, root, rest, up)
+	local h = myTbl.BodyHeight
 
-	local reach = self:Trace(root, rest)
+	local reach = myTbl.TraceMyTbl(self, myTbl, root, rest)
 	if reach.Hit and not reach.HitSky then return reach.HitPos, true end
 
-	local down = self:Trace(rest, rest - up * (h * 1.6))
+	local down = myTbl.TraceMyTbl(self, myTbl, rest, rest - up * (h * 1.6))
 	if down.Hit and not down.HitSky then return down.HitPos, true end
 
-	local back = self:Trace(rest - up * (h + 12), root - up * (h + 12))
+	local back = myTbl.TraceMyTbl(self, myTbl, rest - up * (h + 12), root - up * (h + 12))
 	if back.Hit then return back.HitPos, true end
 
 	return rest - up * (h * 0.6), false
@@ -438,7 +438,7 @@ function ENT:UpdateLimbs(myTbl, pos)
 		local shrink = role and 1 or squeezed
 		local yaw = math.rad(limb.angle)
 		local rest = pos + (fwd * math.cos(yaw) + left * math.sin(yaw)) * (limb.length * limb.spread * shrink) + lead
-		local target, grounded = myTbl.FootTarget(self, root, rest, up)
+		local target, grounded = myTbl.FootTarget(self, myTbl, root, rest, up)
 		if not grounded then
 			target = target + Wobble(now * 2, limb.phase, limb.freq) * limb.length * 0.2
 		end
