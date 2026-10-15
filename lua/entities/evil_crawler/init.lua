@@ -10,6 +10,8 @@ include("shared.lua")
 include("sv_brain.lua")
 include("sv_attack.lua")
 
+local entMeta = FindMetaTable( "Entity" )
+
 local cv_probes = CreateConVar("evil_crawler_debug_probes", "0", 0, "Draw surface probes (needs developer 1)")
 
 local GRAVITY = EvilCrawler.GRAVITY
@@ -117,10 +119,13 @@ function ENT:SenseSurface(pos, fwd, left, up, move)
 	local reach = h * PROBE_REACH
 	local normal, point, grip = Vector(), Vector(), 0
 
+	local traceFunc = self.Trace
+
 	local function probe(from, dir, len, weight)
-		local tr = self:Trace(from, from + dir * len)
+		local tr = traceFunc(self, from, from + dir * len)
 		if not tr.Hit or tr.StartSolid or tr.HitSky or tr.HitNoDraw then return false end
-		if IsValid(tr.Entity) and SWINGS[tr.Entity:GetClass()] then return false end
+		local hitEnt = tr.Entity
+		if not tr.HitWorld and hitEnt and SWINGS[entMeta.GetClass(hitEnt)] then return false end
 		if cv_probes:GetBool() then debugoverlay.Line(from, tr.HitPos, 0.05, PROBE_COLOR, true) end
 		local near = 1 - math.min(1, tr.HitPos:Distance(pos) / reach)
 		local w = weight * near * near
