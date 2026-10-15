@@ -33,6 +33,8 @@ EvilCrawler.SETTINGS = {
 		help = "How much an NPC's hit counts toward rage and knockouts, next to a player's" },
 	{ name = "knockout_hits", default = 6, min = 0, max = 50, decimals = 0, label = "Knockout hits",
 		help = "Hits while it's raging that knock it out cold. At 0 it never goes down" },
+	{ name = "knockout_anytime", default = 0, min = 0, max = 1, label = "Knock out anytime",
+		help = "Knockout hits count when it isn't raging too, inside 30 seconds" },
 	{ name = "knockout_time", default = 25, min = 1, max = 120, decimals = 0, label = "Knockout time",
 		help = "Seconds, give or take a fifth, it stays down" },
 	{ name = "killable", default = 1, min = 0, max = 1, label = "Killable",

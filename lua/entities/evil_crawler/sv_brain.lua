@@ -754,6 +754,11 @@ function ENT:Hurt(attacker, from)
 		if need > 0 and self.Blows >= need then self:KnockOut(now) end
 		return
 	end
+	if EvilCrawler.Setting("knockout_anytime") > 0 and self:Battered(now, self:Weight(attacker)) then
+		self:Blame(attacker)
+		self:KnockOut(now)
+		return
+	end
 	if self:Provoked(now, self:Weight(attacker)) then
 		self:Rage(attacker, now)
 		return
@@ -854,6 +859,14 @@ function ENT:Provoked(now, w)
 	local sum = 0
 	for _, hit in ipairs(self.Hits) do sum = sum + hit[2] end
 	return sum >= EvilCrawler.Setting("rage_hits")
+end
+
+function ENT:Battered(now, w)
+	local need = EvilCrawler.Setting("knockout_hits")
+	if need <= 0 then return false end
+	if now - (self.BlowAt or -math.huge) > RAGE_WINDOW then self.Blows = 0 end
+	self.Blows, self.BlowAt = self.Blows + w, now
+	return self.Blows >= need
 end
 
 function ENT:Flinches(now)
