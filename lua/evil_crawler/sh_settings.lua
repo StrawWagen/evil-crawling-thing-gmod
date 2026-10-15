@@ -37,6 +37,8 @@ EvilCrawler.SETTINGS = {
 		help = "Knockout hits count when it isn't raging too, inside 30 seconds" },
 	{ name = "knockout_time", default = 25, min = 1, max = 120, decimals = 0, label = "Knockout time",
 		help = "Seconds, give or take a fifth, it stays down" },
+	{ name = "tired_time", default = 20, min = 0, max = 120, decimals = 0, label = "Tired time",
+		help = "Seconds of chasing it takes to get its full speed back after a knockout. At 0 it wakes up fresh" },
 	{ name = "killable", default = 1, min = 0, max = 1, label = "Killable",
 		help = "Enough hits from players while it's knocked out kills it" },
 	{ name = "escape_tighten", default = 0.5, min = 0, max = 3, decimals = 2, label = "Coil tightening",

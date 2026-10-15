@@ -67,6 +67,7 @@ local OUT_SOUND = "physics/flesh/flesh_squishy_impact_hard4.wav"
 local BREATH_LOOP = "npc/zombie_poison/pz_breathe_loop1.wav"
 local WAKE_SOUND = "npc/barnacle/barnacle_tongue_pull1.wav"
 local RISE_TIME = 1.2
+local TIRED_SLOW = 0.5
 local KILL_HITS = 6
 local DEATH_SOUND = "physics/flesh/flesh_bloody_break.wav"
 local DOORS = { prop_door_rotating = true, func_door = true, func_door_rotating = true }
@@ -571,6 +572,18 @@ function ENT:Fits(now)
 	self.FitUntil = now + math.Rand(span[1], span[2])
 end
 
+function ENT:Winded()
+	local tired = self.Tired or 0
+	if tired <= 0 then return 1 end
+	local span = EvilCrawler.Setting("tired_time")
+	if span <= 0 then
+		self.Tired = 0
+		return 1
+	end
+	if CHASING[self.State] and not self.Still then self.Tired = math.max(0, tired - FrameTime() / span) end
+	return 1 - TIRED_SLOW * self.Tired
+end
+
 function ENT:Switched()
 	if not (ai_disabled and ai_disabled:GetBool()) then return false end
 	if self:Awake() and self:GetAct() ~= EvilCrawler.ACT_NONE then self:Release() end
@@ -594,7 +607,7 @@ function ENT:Steer()
 		end
 	end
 
-	local burst = EvilCrawler.Setting("burst")
+	local burst = EvilCrawler.Setting("burst") * self:Winded()
 	if self.DetourUntil and now < self.DetourUntil then
 		return self:GetPos() + self.Detour, (self.Pace or 0) * burst, SNAP
 	end
@@ -813,6 +826,7 @@ function ENT:Wake(now)
 	self:EmitSound(WAKE_SOUND, 80, math.random(60, 70))
 	self.LetGoUntil = nil
 	self.RiseUntil = now + RISE_TIME
+	self.Tired = 1
 	self.Anger = ANGER_MAX
 	self.CalmAt = now + ANGER_FADE
 	self.Spent = nil
