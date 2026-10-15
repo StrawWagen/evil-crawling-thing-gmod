@@ -25,6 +25,7 @@ local LEVELS = { 1, 0.5, 0.25 }
 local AHEAD = 1.5
 local ROOM_PAD = 40
 local ROOM_MIN = 10
+local SQUEEZED = 0.35
 local DUCK_RATE, RISE_RATE = 12, 4
 local FACING = -0.5
 local GAP_GRIP = 0.1
@@ -263,6 +264,7 @@ function ENT:Crawl(dt)
 		self.Room = Lerp(1 - math.exp(-dt * (room < self.Room and DUCK_RATE or RISE_RATE)), self.Room, room)
 		local squeeze = math.Round(1 - self.Room / h, 2)
 		if squeeze ~= self:GetSqueeze() then self:SetSqueeze(squeeze) end
+		wish = wish * math.max(SQUEEZED, self.Room / h)
 
 		self.Vel = LerpVector(1 - math.exp(-dt * accel), self.Vel, wish)
 		self.Vel = self.Vel - up * self.Vel:Dot(up)
