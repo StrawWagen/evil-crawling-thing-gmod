@@ -23,6 +23,7 @@ local function Admin(control)
 end
 
 local function Build(panel)
+	panel:CheckBox("Show the mash prompt", "evil_crawler_struggle_prompt")
 	for _, s in ipairs(EvilCrawler.SETTINGS) do
 		local cv = GetConVar(s.convar)
 		local control

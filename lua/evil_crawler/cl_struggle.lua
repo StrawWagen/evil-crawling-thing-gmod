@@ -21,6 +21,8 @@ local BONE = Color(170, 160, 145)
 local KEY_BG = Color(10, 8, 9, 200)
 local BAR_BG = Color(255, 255, 255, 25)
 
+local cv_prompt = CreateClientConVar("evil_crawler_struggle_prompt", "1", true, false, "Show the key to mash when a crawler grabs you")
+
 surface.CreateFont("EvilCrawlerKey", { font = "Roboto", size = 26, weight = 800 })
 
 local shownFree = 0
@@ -68,6 +70,7 @@ hook.Add("HUDPaint", "EvilCrawlerStruggle", function()
 		shownFree = 0
 		return
 	end
+	if not cv_prompt:GetBool() then return end
 
 	local ply = LocalPlayer()
 	local free = ply:GetNW2Float(EvilCrawler.FREE_VAR, 0)
