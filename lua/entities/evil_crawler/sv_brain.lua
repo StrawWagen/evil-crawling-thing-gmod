@@ -72,6 +72,12 @@ local KILL_HITS = 6
 local DEATH_SOUND = "physics/flesh/flesh_bloody_break.wav"
 local DOORS = { prop_door_rotating = true, func_door = true, func_door_rotating = true }
 local BASH_GAP = 2
+local WALL_RANGE = 400
+local SEEK_STEP = 24
+local SEEK_STEPS = 24
+local GAP_LEVELS = { 1, 0.5, 0.25 }
+local ROUTE_GAP = 1
+local WAY_TIME = 5
 local BASH_SOUNDS = { "physics/wood/wood_box_impact_hard3.wav", "physics/wood/wood_panel_impact_hard1.wav" }
 
 local RHYTHM = {
@@ -464,10 +470,11 @@ function ENT:Ponder()
 end
 
 function ENT:CheckProgress(now)
-	if not self.Goal then return end
+	local goal = self.Way and self.Way[1] or self.Goal
+	if not goal then return end
 
-	if not self.ProgressGoal or self.ProgressGoal:Distance(self.Goal) > 100 then
-		self.ProgressGoal, self.BestDist, self.ProgressTime = self.Goal, math.huge, now
+	if not self.ProgressGoal or self.ProgressGoal:Distance(goal) > 100 then
+		self.ProgressGoal, self.BestDist, self.ProgressTime = goal, math.huge, now
 	end
 
 	if self.Still then
@@ -475,12 +482,74 @@ function ENT:CheckProgress(now)
 		return
 	end
 
-	local d = self:SurfaceDistance(self.Goal)
-	if d < self.BestDist - 16 or self:Reached(self.Goal) then
+	local d = self:SurfaceDistance(goal)
+	if d < self.BestDist - 16 or self:Reached(goal) then
 		self.BestDist, self.ProgressTime = d, now
 	elseif now - self.ProgressTime > STUCK_TIME then
 		self.BestDist, self.ProgressTime = d, now
-		self:Unstick(self.Goal, now, 1.5)
+		self.Way = nil
+		self:Unstick(goal, now, 1.5)
+	end
+end
+
+function ENT:Opening(p, into, up)
+	local h = self.BodyHeight
+	local squeeze = EvilCrawler.Setting("squeeze") > 0
+	local doors = EvilCrawler.Setting("open_doors") > 0
+	for i, k in ipairs(GAP_LEVELS) do
+		if i > 1 and not squeeze then break end
+		local from = p - up * (h * (1 - k))
+		local tr = self:Trace(from, from + into * (h * 3))
+		if not tr.Hit or doors and IsValid(tr.Entity) and DOORS[tr.Entity:GetClass()] then return true end
+	end
+	return false
+end
+
+function ENT:Route(now)
+	local goal = self.Goal
+	if self.Way then
+		if not goal or now > self.WayUntil or self.Way.goal:Distance(goal) > 300 then
+			self.Way = nil
+		elseif self:Reached(self.Way[1]) then
+			table.remove(self.Way, 1)
+			if #self.Way == 0 then self.Way = nil end
+		end
+		if self.Way then return end
+	end
+	if not goal or self.Puppeting or now < (self.NextRoute or 0) or self.BodyUp.z < 0.7 or self:GetSwimming() then return end
+	self.NextRoute = now + ROUTE_GAP
+
+	local pos, up, h = self:GetPos(), self.BodyUp, self.BodyHeight
+	local to = goal - pos
+	if math.abs(to:Dot(up)) > h * 2 then return end
+	to = to - up * to:Dot(up)
+	local dist = to:Length()
+	if dist < h * 2 then return end
+	local tr = self:Trace(pos, pos + to * (math.min(dist, WALL_RANGE) / dist))
+	if not tr.Hit or tr.StartSolid or IsValid(tr.Entity) and DOORS[tr.Entity:GetClass()] then return end
+	local n = tr.HitNormal - up * tr.HitNormal:Dot(up)
+	if n:LengthSqr() < 0.25 then return end
+	n:Normalize()
+
+	local along, base = n:Cross(up), tr.HitPos + n * h
+	local reach = { base, base }
+	for i = 1, SEEK_STEPS do
+		for s = 1, 2 do
+			local last = reach[s]
+			if last then
+				local p = base + along * ((s == 1 and 1 or -1) * i * SEEK_STEP)
+				if self:Trace(last, p).Hit then
+					reach[s] = false
+				else
+					reach[s] = p
+					if self:Opening(p, -n, up) then
+						self.Way = { p, p - n * (h * 3), goal = goal }
+						self.WayUntil = now + WAY_TIME
+						return
+					end
+				end
+			end
+		end
 	end
 end
 
@@ -599,6 +668,7 @@ function ENT:Steer()
 	if now >= (self.NextThought or 0) then
 		self.NextThought = now + ((self.Pace or 0) > 0.3 and QUICK_INTERVAL or THINK_INTERVAL)
 		self:Ponder()
+		self:Route(now)
 		self:CheckProgress(now)
 		if cv_debug:GetBool() and self.Goal then
 			local c = STATE_COLOR[self.State] or color_white
@@ -619,7 +689,7 @@ function ENT:Steer()
 	if self.State == "drag" then
 		pace = pace * (1 - math.Clamp(((self.HoldLag or 0) - SNAGGED[1]) / (SNAGGED[2] - SNAGGED[1]), 0, 0.9))
 	end
-	return self.Goal, pace * burst, SNAP
+	return self.Way and self.Way[1] or self.Goal, pace * burst, SNAP
 end
 
 local EYE_FLAGS = 65536 + 131072
