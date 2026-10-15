@@ -137,6 +137,8 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Bool", 0, "Swimming")
 end
 
+local entMeta = FindMetaTable("Entity")
+
 local isNpcEnt
 local isNextbotEnt
 local isNextbotOrNpcEnt
@@ -172,11 +174,31 @@ do
 end
 
 local traceTbl = {}
+local traceOwner
+local COLLISION_GROUP_DEBRIS = COLLISION_GROUP_DEBRIS
+
+ENT.DefaultTraceFilter = function(e)
+	if e == traceOwner then return end
+	if isNpcEnt(e) or isNextbotEnt(e) then return end
+	if entMeta.IsRagdoll(e) then return end
+	if entMeta.GetCollisionGroup(e) == COLLISION_GROUP_DEBRIS then return end
+	return true
+end
 
 function ENT:Trace(from, to, mask)
-	self.TraceFilter = self.TraceFilter or function(e)
-		return e ~= self and not e:IsPlayer() and not e:IsNPC() and not e:IsNextBot() and e:GetClass() ~= "prop_ragdoll"
-			and e:GetCollisionGroup() ~= COLLISION_GROUP_DEBRIS
-	end
-	return util.TraceLine({ start = from, endpos = to, filter = self.TraceFilter, mask = mask or MASK_SOLID })
+	local myTbl = entMeta.GetTable(self)
+	mask = mask or MASK_SOLID
+
+	traceFilter = myTbl.TraceFilter or myTbl.DefaultTraceFilter
+
+	traceTbl.start = from
+	traceTbl.endpos = to
+	traceTbl.filter = traceFilter
+	traceTbl.mask = mask
+
+	traceOwner = self
+	local result = util.TraceLine(traceTbl)
+	traceOwner = nil
+
+	return result
 end
