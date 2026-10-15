@@ -151,29 +151,23 @@ do
 
 	isNpcEnt = function( ent )
 		return getmetatable( ent ) == npcMeta
-
 	end
 	isNextbotEnt = function( ent ) -- ditto
 		return getmetatable( ent ) == nextbotMeta
-
 	end
 
 	isNextbotOrNpcEnt = function( ent )
 		return isNpcEnt( ent ) or isNextbotEnt( ent )
-
 	end
 	function ENT:IsNextbotOrNpcEnt( ent )
 		return isNextbotOrNpcEnt( ent )
-
 	end
 
 	isPlayer = function( ent )
 		return getmetatable( ent ) == plyMeta
-
 	end
 	function ENT:IsPlyNoIndex( ent )
 		return isPlayer( ent )
-
 	end
 end
 
