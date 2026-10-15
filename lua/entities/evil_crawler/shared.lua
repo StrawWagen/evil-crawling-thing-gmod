@@ -189,7 +189,7 @@ function ENT:Trace(from, to, mask)
 	local myTbl = entMeta.GetTable(self)
 	mask = mask or MASK_SOLID
 
-	traceFilter = myTbl.TraceFilter or myTbl.DefaultTraceFilter
+	local traceFilter = myTbl.TraceFilter or myTbl.DefaultTraceFilter
 
 	traceTbl.start = from
 	traceTbl.endpos = to
