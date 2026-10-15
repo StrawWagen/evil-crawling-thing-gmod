@@ -154,7 +154,7 @@ do
 	isNpcEnt = function(ent)
 		return getmetatable(ent) == npcMeta
 	end
-	isNextbotEnt = function(ent) -- ditto
+	isNextbotEnt = function(ent)
 		return getmetatable(ent) == nextbotMeta
 	end
 
