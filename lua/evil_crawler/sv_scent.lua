@@ -30,6 +30,10 @@ function EvilCrawler.Living(ent)
 	return ent:Health() > 0 or ent:IsNextBot() and ent:GetMaxHealth() <= 0
 end
 
+function EvilCrawler.Noclipping(ply)
+	return ply:GetMoveType() == MOVETYPE_NOCLIP and not ply:InVehicle()
+end
+
 local function Key(ix, iy, iz)
 	return (ix + 512) * 1048576 + (iy + 512) * 1024 + (iz + 512)
 end
@@ -104,7 +108,7 @@ local function LeavesScent(ent)
 	local ply = ent
 	return ply:Alive()
 		and not (ai_ignoreplayers and ai_ignoreplayers:GetBool())
-		and ply:GetMoveType() ~= MOVETYPE_NOCLIP
+		and not EvilCrawler.Noclipping(ply)
 		and ply:GetObserverMode() == OBS_MODE_NONE
 end
 

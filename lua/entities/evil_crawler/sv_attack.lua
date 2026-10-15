@@ -286,7 +286,7 @@ function ENT:Skewer(npc, now)
 end
 
 function ENT:Seize(ply, now)
-	if not ply:Alive() or ply:HasGodMode() or ply:GetMoveType() == MOVETYPE_NOCLIP then
+	if not ply:Alive() or ply:HasGodMode() or EvilCrawler.Noclipping(ply) then
 		self:Release()
 		return
 	end

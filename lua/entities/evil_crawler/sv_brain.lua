@@ -105,7 +105,7 @@ local function Perceivable(ent)
 	if Creature(ent) then return EvilCrawler.Living(ent) and not ent.EvilCrawlerVictim end
 	return ent:Alive()
 		and not ent.EvilCrawlerVictim
-		and ent:GetMoveType() ~= MOVETYPE_NOCLIP
+		and not EvilCrawler.Noclipping(ent)
 		and ent:GetObserverMode() == OBS_MODE_NONE
 end
 
@@ -115,7 +115,9 @@ end
 
 function ENT:Clear(from, ent, to, mask)
 	local tr = self:Trace(from, to or ent:WorldSpaceCenter(), mask)
-	return not tr.Hit or IsValid(tr.Entity) and tr.Entity == Mover(ent)
+	if not tr.Hit then return true end
+	local body = Mover(ent)
+	return IsValid(tr.Entity) and (tr.Entity == body or tr.Entity == body:GetParent())
 end
 
 function ENT:SurfaceDistance(point)
@@ -865,7 +867,7 @@ local function Burnable(ent)
 	if ent.EvilCrawlerVictim or ent:IsFlagSet(FL_NOTARGET) then return false end
 	if ent:IsPlayer() then
 		return ent:Alive() and not EvilCrawler.IgnoresPlayers() and not ent:HasGodMode()
-			and ent:GetMoveType() ~= MOVETYPE_NOCLIP and ent:GetObserverMode() == OBS_MODE_NONE
+			and not EvilCrawler.Noclipping(ent) and ent:GetObserverMode() == OBS_MODE_NONE
 	end
 	return Creature(ent) and EvilCrawler.Living(ent) and ent:GetClass() ~= "npc_bullseye"
 end
