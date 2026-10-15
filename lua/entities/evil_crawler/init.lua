@@ -10,7 +10,7 @@ include("shared.lua")
 include("sv_brain.lua")
 include("sv_attack.lua")
 
-local entMeta = FindMetaTable( "Entity" )
+local entMeta = FindMetaTable("Entity")
 
 local cv_probes = CreateConVar("evil_crawler_debug_probes", "0", 0, "Draw surface probes (needs developer 1)")
 
