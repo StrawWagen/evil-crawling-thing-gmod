@@ -116,21 +116,23 @@ function ENT:Think()
 end
 
 function ENT:SenseSurface(pos, fwd, left, up, move)
-	local h = self.BodyHeight
+	local myTbl = entMeta.GetTable(self)
+
+	local h = myTbl.BodyHeight
 	local reach = h * PROBE_REACH
 	local normal, point, grip = Vector(), Vector(), 0
 
-	local traceFunc = self.Trace
+	local traceFunc = myTbl.TraceMyTbl
 
-	local function probe(from, dir, len, weight)
-		local tr = traceFunc(self, from, from + dir * len)
+	local function probe(myTbl, from, dir, len, weight)
+		local tr = traceFunc(self, myTbl, from, from + dir * len)
 		if not tr.Hit or tr.StartSolid or tr.HitSky or tr.HitNoDraw then return false end
 		local hitEnt = tr.Entity
 		if not tr.HitWorld and hitEnt ~= NULL and SWINGS[entMeta.GetClass(hitEnt)] then return false end
 		if cv_probes:GetBool() then debugoverlay.Line(from, tr.HitPos, 0.05, PROBE_COLOR, true) end
 		local near = 1 - math.min(1, tr.HitPos:Distance(pos) / reach)
 		local w = weight * near * near
-		if self.Gap and tr.HitNormal:Dot(self.Gap) < FACING then w = w * GAP_GRIP end
+		if myTbl.Gap and tr.HitNormal:Dot(myTbl.Gap) < FACING then w = w * GAP_GRIP end
 		normal:Add(tr.HitNormal * w)
 		point:Add(tr.HitPos * w)
 		grip = grip + w
@@ -143,12 +145,12 @@ function ENT:SenseSurface(pos, fwd, left, up, move)
 
 	local downHits = 0
 	for _, d in ipairs(DOWN) do
-		if probe(pos, world(d), reach, 1) then downHits = downHits + 1 end
+		if probe(myTbl, pos, world(d), reach, 1) then downHits = downHits + 1 end
 	end
 
 	for _, d in ipairs(RING) do
 		local dir = world(d)
-		probe(pos, dir, h * 1.5, math.max(0.25, dir:Dot(move)))
+		probe(myTbl, pos, dir, h * 1.5, math.max(0.25, dir:Dot(move)))
 	end
 
 	if downHits < #DOWN * 0.6 then
@@ -156,7 +158,7 @@ function ENT:SenseSurface(pos, fwd, left, up, move)
 			local below = pos - up * (h * depth)
 			for _, d in ipairs(RING) do
 				local dir = world(d)
-				probe(below + dir * (h * 1.3), -dir, h * 1.3, math.max(0.3, dir:Dot(move)))
+				probe(myTbl, below + dir * (h * 1.3), -dir, h * 1.3, math.max(0.3, dir:Dot(move)))
 			end
 		end
 	end
