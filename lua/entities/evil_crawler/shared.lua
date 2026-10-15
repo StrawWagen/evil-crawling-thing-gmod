@@ -202,3 +202,21 @@ function ENT:Trace(from, to, mask)
 
 	return result
 end
+
+
+function ENT:TraceMyTbl(myTbl, from, to, mask)
+	mask = mask or MASK_SOLID
+
+	local traceFilter = myTbl.TraceFilter or myTbl.DefaultTraceFilter
+
+	traceTbl.start = from
+	traceTbl.endpos = to
+	traceTbl.filter = traceFilter
+	traceTbl.mask = mask
+
+	traceOwner = self
+	local result = util.TraceLine(traceTbl)
+	traceOwner = nil
+
+	return result
+end
