@@ -11,6 +11,7 @@ include("sv_brain.lua")
 include("sv_attack.lua")
 
 local entMeta = FindMetaTable("Entity")
+local NULL = NULL
 
 local cv_probes = CreateConVar("evil_crawler_debug_probes", "0", 0, "Draw surface probes (needs developer 1)")
 
@@ -125,7 +126,7 @@ function ENT:SenseSurface(pos, fwd, left, up, move)
 		local tr = traceFunc(self, from, from + dir * len)
 		if not tr.Hit or tr.StartSolid or tr.HitSky or tr.HitNoDraw then return false end
 		local hitEnt = tr.Entity
-		if not tr.HitWorld and hitEnt and SWINGS[entMeta.GetClass(hitEnt)] then return false end
+		if not tr.HitWorld and hitEnt ~= NULL and SWINGS[entMeta.GetClass(hitEnt)] then return false end
 		if cv_probes:GetBool() then debugoverlay.Line(from, tr.HitPos, 0.05, PROBE_COLOR, true) end
 		local near = 1 - math.min(1, tr.HitPos:Distance(pos) / reach)
 		local w = weight * near * near
