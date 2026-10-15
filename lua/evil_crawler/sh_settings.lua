@@ -9,6 +9,8 @@ EvilCrawler.SETTINGS = {
 		help = "Crawlers force doors open, locked or not" },
 	{ name = "squeeze", default = 1, min = 0, max = 1, label = "Squeezes through gaps",
 		help = "Crawlers shrink down to follow through vents, crawlspaces and low holes" },
+	{ name = "victim_voices", default = 1, min = 0, max = 1, label = "Victims cry out",
+		help = "Grabbed NPCs and players scream for help and cry out while it has them" },
 	{ name = "struggle_time", default = 3.5, min = 0.5, max = 15, decimals = 1, label = "Struggle time",
 		help = "Seconds a grabbed player has to fight free before going under" },
 	{ name = "sedate_time", default = 10, min = 0.1, max = 60, decimals = 1, label = "Sedate time",

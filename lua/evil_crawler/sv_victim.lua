@@ -124,7 +124,7 @@ end
 
 local function Say(rag, kind, level)
 	local lines = rag.EvilCrawlerVoice and rag.EvilCrawlerVoice[kind]
-	if not lines then return end
+	if not lines or EvilCrawler.Setting("victim_voices") == 0 then return end
 	local line = lines[math.random(#lines)]
 	rag:EmitSound(line, level or 90, rag.EvilCrawlerPitch, 1, CHAN_VOICE)
 	EvilCrawler.Scent.Frighten(rag:GetPos(), CRY_FEAR.radius, CRY_FEAR.time)
