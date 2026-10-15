@@ -137,6 +137,48 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Bool", 0, "Swimming")
 end
 
+local isNpcEnt
+local isNextbotEnt
+local isNextbotOrNpcEnt
+local isPlayer
+
+-- 2x as fast as :IsNPC(), which isnt really much faster but hey. credit to zaurzo for the method
+do
+	local npcMeta = FindMetaTable( "NPC" )
+	local nextbotMeta = FindMetaTable( "NextBot" )
+	local plyMeta = FindMetaTable( "Player" )
+	local getmetatable = getmetatable
+
+	isNpcEnt = function( ent )
+		return getmetatable( ent ) == npcMeta
+
+	end
+	isNextbotEnt = function( ent ) -- ditto
+		return getmetatable( ent ) == nextbotMeta
+
+	end
+
+	isNextbotOrNpcEnt = function( ent )
+		return isNpcEnt( ent ) or isNextbotEnt( ent )
+
+	end
+	function ENT:IsNextbotOrNpcEnt( ent )
+		return isNextbotOrNpcEnt( ent )
+
+	end
+
+	isPlayer = function( ent )
+		return getmetatable( ent ) == plyMeta
+
+	end
+	function ENT:IsPlyNoIndex( ent )
+		return isPlayer( ent )
+
+	end
+end
+
+local traceTbl = {}
+
 function ENT:Trace(from, to, mask)
 	self.TraceFilter = self.TraceFilter or function(e)
 		return e ~= self and not e:IsPlayer() and not e:IsNPC() and not e:IsNextBot() and e:GetClass() ~= "prop_ragdoll"
