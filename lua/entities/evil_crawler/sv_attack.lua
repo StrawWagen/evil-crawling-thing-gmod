@@ -154,6 +154,15 @@ local function Fling(body, vel)
 	end
 end
 
+local function Dissolve(ent)
+	local dissolver = ents.Create("env_entity_dissolver")
+	if ent:GetName() == "" then ent:SetName("evil_crawler_sear" .. ent:EntIndex()) end
+	dissolver:SetKeyValue("dissolvetype", "0")
+	dissolver:Spawn()
+	dissolver:Fire("Dissolve", ent:GetName())
+	dissolver:Fire("Kill", "", 0.1)
+end
+
 function ENT:Incinerate(victim)
 	self:Release()
 	victim.EvilCrawlerVictim = nil
@@ -174,19 +183,14 @@ function ENT:Incinerate(victim)
 	if victim:IsNPC() and IsValid(victim:GetActiveWeapon()) then victim:DropWeapon() end
 	local body = Victim.Body(victim)
 	if not IsValid(body) then
-		if victim:IsPlayer() then victim:SetVelocity(vel) end
 		local dmg = DamageInfo()
 		dmg:SetDamage(math.max(victim:Health(), 1) * 10 + 1000)
-		dmg:SetDamageType(DMG_BURN)
-		dmg:SetDamageForce(vel * 100)
+		dmg:SetDamageType(DMG_DISSOLVE)
 		dmg:SetAttacker(self)
 		dmg:SetInflictor(self)
 		dmg:SetDamagePosition(center)
 		victim:TakeDamageInfo(dmg)
-		if IsValid(victim) and not victim:IsPlayer() and EvilCrawler.Living(victim) then
-			hook.Run("OnNPCKilled", victim, self, self)
-			victim:Remove()
-		end
+		if IsValid(victim) and not victim:IsPlayer() and EvilCrawler.Living(victim) then Dissolve(victim) end
 		return
 	end
 
