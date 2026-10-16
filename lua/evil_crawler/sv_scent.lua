@@ -13,6 +13,11 @@ local NPC_SLOW, NPC_FAST = 40, 240
 local FEAR = 1.5
 local FIGHTING = 0.4
 local CELL = 128
+local DEATH_SPOKES = 8
+local DEATH_STEP = 120
+local DEATH_REACH = 960
+local DEATH_LIFT = Vector(0, 0, 16)
+local FRESH = 3
 
 local cv_debug = CreateConVar("evil_crawler_debug_scent", "0", 0, "Draw scent trails (needs developer 1)")
 
@@ -20,6 +25,7 @@ Scent.cells = Scent.cells or {}
 Scent.trails = Scent.trails or {}
 Scent.active = Scent.active or {}
 Scent.npcs = Scent.npcs or {}
+Scent.reeks = Scent.reeks or {}
 
 local function Creature(ent)
 	return ent:IsNPC() or ent:IsNextBot()
@@ -60,6 +66,41 @@ local function Remove(node)
 		if next(cell) == nil then Scent.cells[node.cell] = nil end
 	end
 	node.dead = true
+end
+
+local function Air(cloud)
+	for _, trail in ipairs(cloud) do
+		local node = trail.first
+		while node do
+			Remove(node)
+			node = node.next
+		end
+		Scent.trails[trail] = nil
+	end
+end
+
+function Scent.Reek(pos, owner, strength)
+	if owner and Scent.reeks[owner] then Air(Scent.reeks[owner]) end
+	local now, center, cloud = CurTime(), pos + DEATH_LIFT, {}
+	local turn = math.Rand(0, math.pi * 2)
+	for i = 1, DEATH_SPOKES do
+		local a = turn + i / DEATH_SPOKES * math.pi * 2
+		local dir = Vector(math.cos(a), math.sin(a), 0)
+		local tr = util.TraceLine({ start = center, endpos = center + dir * DEATH_REACH, mask = MASK_SOLID_BRUSHONLY })
+		local trail = { owner = owner, death = true, cloud = cloud }
+		for k = math.floor(tr.Fraction * DEATH_REACH / DEATH_STEP), 0, -1 do
+			local node = {
+				pos = center + dir * (k * DEATH_STEP), time = now, trail = trail, prev = trail.last, npc = false, fear = false,
+				strength = strength / (1 + k * DEATH_STEP / DEATH_REACH),
+			}
+			if trail.last then trail.last.next = node else trail.first = node end
+			trail.last = node
+			Insert(node)
+		end
+		Scent.trails[trail] = true
+		cloud[#cloud + 1] = trail
+	end
+	if owner then Scent.reeks[owner] = cloud end
 end
 
 function Scent.Intensity(node, now)
@@ -294,6 +335,26 @@ end)
 hook.Add("EntityRemoved", "EvilCrawlerScent", function(ent)
 	Scent.npcs[ent] = nil
 	Scent.active[ent] = nil
+	if Scent.reeks[ent] then
+		Air(Scent.reeks[ent])
+		Scent.reeks[ent] = nil
+	end
+end)
+
+local ai_serverragdolls = GetConVar("ai_serverragdolls")
+
+local function Crawler(ent)
+	return IsValid(ent) and ent:GetClass() == "evil_crawler"
+end
+
+hook.Add("OnNPCKilled", "EvilCrawlerScent", function(npc, attacker)
+	if npc.EvilCrawlerVictim or Crawler(attacker) or ai_serverragdolls and ai_serverragdolls:GetBool() then return end
+	Scent.Reek(npc:GetPos(), nil, FRESH)
+end)
+
+hook.Add("PlayerDeath", "EvilCrawlerScent", function(ply, _, attacker)
+	if Crawler(attacker) then return end
+	Scent.Reek(ply:GetPos(), nil, FRESH)
 end)
 
 for _, ent in ipairs(ents.GetAll()) do

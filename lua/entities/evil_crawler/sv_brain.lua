@@ -46,6 +46,7 @@ local LEAP_ARCS = { 1, 1.5 }
 local LEAP_GAP = 3
 local LEAP_MISS = 150
 local HUNGRY_PULL = 2
+local DEATH_PULL = 4
 local SNIFF_TIME = 5
 local FEAR_PULL = 1.5
 local GRUDGE_PULL = 2.5
@@ -274,7 +275,12 @@ end
 function ENT:Appeal(node, now)
 	local trail, owner = node.trail, node.trail.owner
 	local spent = self.Spent[trail]
-	if not IsValid(owner) or spent and node.time <= spent then return 0 end
+	if spent and node.time <= spent then return 0 end
+	if trail.death then
+		if EvilCrawler.Setting("eat_corpses") == 0 or not self:IsHungry() or owner and not self:IsCarrion(owner) then return 0 end
+		return Scent.Intensity(node, now) * DEATH_PULL
+	end
+	if not IsValid(owner) then return 0 end
 	local w = 1
 	if node.npc then
 		if not (self:IsHungry() and self:IsEdible(owner)) then return 0 end
@@ -289,7 +295,9 @@ function ENT:Appeal(node, now)
 end
 
 function ENT:Spend(node)
-	self.Spent[node.trail] = math.max(self.Spent[node.trail] or node.time, node.time)
+	for _, trail in ipairs(node.trail.cloud or { node.trail }) do
+		self.Spent[trail] = math.max(self.Spent[trail] or node.time, node.time)
+	end
 end
 
 function ENT:Smells(node)
@@ -392,6 +400,16 @@ function ENT:Ponder()
 	self.Visited[Cell(pos)] = now
 
 	self:Look(now)
+	local meal = self:Carrion()
+	if meal then
+		self.Taunt = nil
+		self:SetPrey(NULL)
+		if self:Scavenge(meal) then return end
+		self:SetState("scavenge")
+		self.Goal = meal:WorldSpaceCenter()
+		return
+	end
+
 	local prey = self:Sense()
 	self:SetPrey(prey or NULL)
 	if prey then
@@ -431,15 +449,6 @@ function ENT:Ponder()
 		self:SetState("search")
 		self.Goal = self.LastKnown
 		self.SearchUntil = now + SEARCH_TIME
-	end
-
-	local meal = self:Carrion()
-	if meal then
-		self.Taunt = nil
-		if self:Scavenge(meal) then return end
-		self:SetState("scavenge")
-		self.Goal = meal:WorldSpaceCenter()
-		return
 	end
 
 	local noise, loud = self:Listen(now)
@@ -496,7 +505,9 @@ function ENT:Ponder()
 	if node then
 		self.Trail = node
 		self.Taunt = nil
-		if node.trail.owner == self.Hunted and now - self.SensedAt < LOST_MEMORY then
+		if node.trail.death then
+			self:SetState("scavenge")
+		elseif node.trail.owner == self.Hunted and now - self.SensedAt < LOST_MEMORY then
 			self:SetState("chase")
 		else
 			self:SetState("track")

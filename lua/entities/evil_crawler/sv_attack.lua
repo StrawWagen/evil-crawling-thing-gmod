@@ -51,6 +51,10 @@ local BURN_TIME = 6
 local CHARRED = Color(70, 50, 45)
 local CARRION_RANGE = 1500
 local LEFTOVER_RANGE = 4000
+local REEK_REFRESH = 40
+local REEK_MOVED = 150
+local FRESH_TIME = 60
+local REEK_FRESH, REEK_STALE = 3, 1.5
 local carrion = {}
 
 local WINDUP_SOUNDS = { "npc/barnacle/barnacle_tongue_pull1.wav", "npc/barnacle/barnacle_tongue_pull2.wav" }
@@ -238,10 +242,14 @@ local function Chest(corpse)
 	return corpse:GetPhysicsObjectNum(index >= 0 and index or 0)
 end
 
-function ENT:IsCarrion(rag)
+local function Rotting(rag)
 	if not IsValid(rag) or Victim.bodies[rag] or rag.EvilCrawlerVictim or not CurrentPart(rag) then return false end
 	local chest = Chest(rag)
 	return IsValid(chest) and chest:IsMotionEnabled()
+end
+
+function ENT:IsCarrion(rag)
+	return Rotting(rag)
 end
 
 function ENT:Carrion()
@@ -275,7 +283,10 @@ end
 hook.Add("OnEntityCreated", "EvilCrawlerCarrion", function(ent)
 	if ent:GetClass() ~= "prop_ragdoll" then return end
 	timer.Simple(0, function()
-		if IsValid(ent) and ent:LookupBone("ValveBiped.Bip01_Spine2") then carrion[ent] = true end
+		if IsValid(ent) and ent:LookupBone("ValveBiped.Bip01_Spine2") then
+			carrion[ent] = true
+			ent.EvilCrawlerDiedAt = CurTime()
+		end
 	end)
 end)
 
@@ -284,8 +295,26 @@ hook.Add("EntityRemoved", "EvilCrawlerCarrion", function(ent)
 end)
 
 for _, ent in ipairs(ents.FindByClass("prop_ragdoll")) do
-	if ent:LookupBone("ValveBiped.Bip01_Spine2") then carrion[ent] = true end
+	if ent:LookupBone("ValveBiped.Bip01_Spine2") then
+		carrion[ent] = true
+		ent.EvilCrawlerDiedAt = ent.EvilCrawlerDiedAt or CurTime()
+	end
 end
+
+timer.Create("EvilCrawlerReek", 1, 0, function()
+	if EvilCrawler.Setting("eat_corpses") == 0 then return end
+	local now = CurTime()
+	for rag in pairs(carrion) do
+		if Rotting(rag) then
+			local pos = rag:GetPos()
+			if now >= (rag.EvilCrawlerReekAt or 0) or pos:Distance(rag.EvilCrawlerReekPos) > REEK_MOVED then
+				rag.EvilCrawlerReekAt, rag.EvilCrawlerReekPos = now + REEK_REFRESH, pos
+				local fresh = now - (rag.EvilCrawlerDiedAt or now) < FRESH_TIME
+				EvilCrawler.Scent.Reek(pos, rag, fresh and REEK_FRESH or REEK_STALE)
+			end
+		end
+	end
+end)
 
 function ENT:Sate(now)
 	self.FedAt = now
