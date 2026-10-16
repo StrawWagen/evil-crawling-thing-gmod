@@ -41,6 +41,10 @@ function EvilCrawler.Fake(ply)
 	return IsValid(rag) and rag
 end
 
+function EvilCrawler.Proxy(ent)
+	return EvilCrawler.Fake(ent) or ent
+end
+
 function EvilCrawler.Faker(rag)
 	local ply = rag.ply
 	return IsValid(ply) and ply.FakeRagdoll == rag and ply
@@ -164,7 +168,7 @@ local function LeavesScent(ent)
 end
 
 local function Drop(ply, now)
-	local pos = ply:GetPos()
+	local pos = EvilCrawler.Proxy(ply):GetPos()
 	local trail = Scent.active[ply]
 	local last = trail and trail.last
 
@@ -364,7 +368,7 @@ end)
 
 hook.Add("PlayerDeath", "EvilCrawlerScent", function(ply, _, attacker)
 	if Crawler(attacker) or ply.EvilCrawlerSlain then return end
-	Scent.Reek(ply:GetPos(), nil, FRESH)
+	Scent.Reek(EvilCrawler.Proxy(ply):GetPos(), nil, FRESH)
 end)
 
 for _, ent in ipairs(ents.GetAll()) do

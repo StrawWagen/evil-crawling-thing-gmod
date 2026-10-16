@@ -1,6 +1,7 @@
 local Scent = EvilCrawler.Scent
 local Hearing = EvilCrawler.Hearing
 local Creature = EvilCrawler.Creature
+local Proxy = EvilCrawler.Proxy
 
 local cv_puppet = CreateConVar("evil_crawler_puppet", "0", 0, "Crawlers follow their spawner's crosshair instead of thinking")
 local cv_debug = GetConVar("evil_crawler_debug_scent")
@@ -152,7 +153,7 @@ local function Mover(ent)
 end
 
 function ENT:Clear(from, ent, to, mask)
-	local tr = self:Trace(from, to or ent:WorldSpaceCenter(), mask)
+	local tr = self:Trace(from, to or Proxy(ent):WorldSpaceCenter(), mask)
 	if not tr.Hit then return true end
 	local body = Mover(ent)
 	return IsValid(tr.Entity) and (tr.Entity == body or tr.Entity == body:GetParent())
@@ -169,7 +170,7 @@ end
 
 function ENT:Feels(ent, pos)
 	if not Perceivable(ent) or (ent:IsPlayer() and not self:Wants(ent)) then return false end
-	local center = ent:WorldSpaceCenter()
+	local center = Proxy(ent):WorldSpaceCenter()
 	local d = center:Distance(pos)
 	if self.Spotted[ent] and self.InView[ent] then return true, d end
 	local body = Mover(ent)
@@ -181,10 +182,10 @@ end
 function ENT:Visibility(ent, pos, now)
 	if not Perceivable(ent) or (ent:IsPlayer() and not self:Wants(ent)) then return 0 end
 	local range = EvilCrawler.Setting("sight_range")
-	local center = ent:WorldSpaceCenter()
+	local center = Proxy(ent):WorldSpaceCenter()
 	local d = center:Distance(pos)
 	if d >= range then return 0 end
-	if not self:Clear(pos, ent, ent:EyePos(), MASK_OPAQUE) and not self:Clear(pos, ent, center, MASK_OPAQUE) then return 0 end
+	if not self:Clear(pos, ent, Proxy(ent):EyePos(), MASK_OPAQUE) and not self:Clear(pos, ent, center, MASK_OPAQUE) then return 0 end
 
 	local speed = Creature(ent) and (ent.EvilCrawlerSpeed or 0) or Mover(ent):GetVelocity():Length()
 	local v = Lerp(math.min(1, speed / SIGHT_RUN), SIGHT_STILL, 1)
@@ -247,7 +248,7 @@ end
 
 function ENT:Lead(ent)
 	if not ent:IsPlayer() then return ent:GetPos() end
-	local from = ent:GetPos() + Vector(0, 0, 32)
+	local from = Proxy(ent):GetPos() + Vector(0, 0, 32)
 	local tr = self:Trace(from, from + Mover(ent):GetVelocity() * LEAD)
 	return tr.HitPos + tr.HitNormal * 16 - Vector(0, 0, 32)
 end
@@ -434,7 +435,7 @@ function ENT:Ponder()
 		end
 		self:SetState("hunt")
 		self.Trail = nil
-		self.Goal = prey:GetPos()
+		self.Goal = Proxy(prey):GetPos()
 		self.LastKnown = self:Lead(prey)
 		self.Hunted, self.SensedAt = prey, now
 		self:Overhead(prey, now)
@@ -456,7 +457,7 @@ function ENT:Ponder()
 		self:SetPrey(glimpse)
 		self:SetState("watch")
 		self.Goal = nil
-		self.LastKnown = glimpse:GetPos()
+		self.LastKnown = Proxy(glimpse):GetPos()
 		return
 	end
 	if self.State == "watch" then
@@ -793,6 +794,7 @@ function ENT:Veer(now, time)
 end
 
 function ENT:Overhead(prey, now)
+	prey = Proxy(prey)
 	if self:GetSwimming() or self:SurfaceDistance(prey:GetPos()) >= REACHED then
 		self.OverSince = nil
 		return
@@ -1042,7 +1044,7 @@ end
 function ENT:Blame(by)
 	if not IsValid(by) or by == self or by:IsWorld() then return end
 	self.Grudge = by
-	self.LastKnown = by:GetPos()
+	self.LastKnown = Proxy(by):GetPos()
 end
 
 function ENT:Awake()
@@ -1170,7 +1172,7 @@ function ENT:Quarry()
 	local best, bestDist = nil, EvilCrawler.Setting("sight_range")
 	for _, ent in ipairs(ents.FindInSphere(pos, bestDist)) do
 		if Burnable(ent) then
-			local d = ent:WorldSpaceCenter():Distance(pos)
+			local d = Proxy(ent):WorldSpaceCenter():Distance(pos)
 			if d < bestDist and self:Clear(pos, ent, nil, MASK_OPAQUE) then best, bestDist = ent, d end
 		end
 	end
@@ -1191,11 +1193,11 @@ function ENT:Rampage(now)
 		if not self.Goal or self:Reached(self.Goal) then self.Goal = self:Around(pos, 600) end
 		return true
 	end
-	if target:NearestPoint(pos):Distance(pos) < RAGE_REACH and self:Clear(pos, target, nil, MASK_OPAQUE) then
+	if Proxy(target):NearestPoint(pos):Distance(pos) < RAGE_REACH and self:Clear(pos, target, nil, MASK_OPAQUE) then
 		self:Sear(target)
 		return true
 	end
-	self.Goal = target:GetPos()
+	self.Goal = Proxy(target):GetPos()
 	self:Overhead(target, now)
 	return true
 end

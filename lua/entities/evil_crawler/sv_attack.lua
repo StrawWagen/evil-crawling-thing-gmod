@@ -1,5 +1,6 @@
 local Victim = EvilCrawler.Victim
 local Creature = EvilCrawler.Creature
+local Proxy = EvilCrawler.Proxy
 local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
 	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
 local ACT_GRAPPLE, ACT_STUN, ACT_SEAR = EvilCrawler.ACT_GRAPPLE, EvilCrawler.ACT_STUN, EvilCrawler.ACT_SEAR
@@ -122,7 +123,7 @@ function ENT:WouldTake(ply)
 end
 
 function ENT:CanAttack(ent)
-	if ent:WorldSpaceCenter():Distance(self:GetPos()) >= ATTACK_REACH then return false end
+	if Proxy(ent):WorldSpaceCenter():Distance(self:GetPos()) >= ATTACK_REACH then return false end
 	if not self:Clear(self:GetPos(), ent) then return false end
 	if ent:IsPlayer() then return self:WouldTake(ent) end
 	return self:IsHungry() and self:IsEdible(ent)
@@ -143,7 +144,7 @@ end
 
 function ENT:Sear(victim)
 	victim.EvilCrawlerVictim = self
-	sound.Play(SEAR_GRAB, victim:WorldSpaceCenter(), 80, math.random(90, 110))
+	sound.Play(SEAR_GRAB, Proxy(victim):WorldSpaceCenter(), 80, math.random(90, 110))
 	self:SetPrey(NULL)
 	self:SetVictim(victim)
 	self:SetAct(ACT_SEAR)
@@ -175,7 +176,8 @@ end
 function ENT:Incinerate(victim)
 	self:Release()
 	victim.EvilCrawlerVictim = nil
-	local center = victim:WorldSpaceCenter()
+	if victim:IsPlayer() and victim:InVehicle() then Victim.Yank(victim, self:GetPos()) end
+	local center = Proxy(victim):WorldSpaceCenter()
 
 	local fx = EffectData()
 	fx:SetOrigin(center)
@@ -188,7 +190,6 @@ function ENT:Incinerate(victim)
 	away = away:LengthSqr() > 1 and away:GetNormalized() or self.Facing
 	local vel = away * FLUNG[1] + vector_up * FLUNG[2]
 
-	if victim:IsPlayer() and victim:InVehicle() then victim:ExitVehicle() end
 	if victim:IsNPC() and IsValid(victim:GetActiveWeapon()) then victim:DropWeapon() end
 	local body = victim:IsPlayer() and Victim.Fall(victim) or Victim.Body(victim)
 	if not IsValid(body) then
@@ -393,19 +394,19 @@ function ENT:Seize(ply, now)
 		self:Release()
 		return
 	end
-	if ply:InVehicle() then ply:ExitVehicle() end
-	sound.Play(GRAB_SOUNDS[math.random(#GRAB_SOUNDS)], ply:WorldSpaceCenter(), 75, math.random(80, 95))
+	if ply:InVehicle() then Victim.Yank(ply, self:GetPos()) end
+	sound.Play(GRAB_SOUNDS[math.random(#GRAB_SOUNDS)], Proxy(ply):WorldSpaceCenter(), 75, math.random(80, 95))
 
 	local rag = EvilCrawler.Fake(ply)
 	self.SeizedAt = rag and Chest(rag):GetPos() or ply:GetPos()
 	self.NextNip = now + math.Rand(NIP_TIME[1], NIP_TIME[2])
-	self.CarryDir = (ply:WorldSpaceCenter() - self:GetPos()):GetNormalized()
+	self.CarryDir = (Proxy(ply):WorldSpaceCenter() - self:GetPos()):GetNormalized()
 	ply.EvilCrawlerFree = 0
 	ply:SetNW2Float(FREE_VAR, 0)
 	ply:SetNW2Entity(HELD_VAR, self)
 	if not rag then ply:SetMoveType(MOVETYPE_NONE) end
 	ply:ViewPunch(Angle(-12, math.Rand(-8, 8), math.Rand(-10, 10)))
-	EvilCrawler.Scent.Frighten(ply:GetPos(), 600, 20)
+	EvilCrawler.Scent.Frighten(self.SeizedAt, 600, 20)
 
 	self:SetAct(ACT_GRAPPLE)
 	self:SetActStart(now)
@@ -544,7 +545,7 @@ local function NearestPlayer(spot)
 	local nearest = math.huge
 	if EvilCrawler.IgnoresPlayers() then return nearest end
 	for _, ply in ipairs(player.GetAll()) do
-		if ply:Alive() and ply:GetObserverMode() == OBS_MODE_NONE then nearest = math.min(nearest, ply:GetPos():Distance(spot)) end
+		if ply:Alive() and ply:GetObserverMode() == OBS_MODE_NONE then nearest = math.min(nearest, Proxy(ply):GetPos():Distance(spot)) end
 	end
 	return nearest
 end
@@ -578,7 +579,7 @@ function ENT:Disturbed()
 	local pos = self:GetPos()
 	for _, ply in ipairs(player.GetAll()) do
 		if ply:Alive() and ply:GetObserverMode() == OBS_MODE_NONE
-			and ply:WorldSpaceCenter():Distance(pos) < DISTURB_RANGE then
+			and Proxy(ply):WorldSpaceCenter():Distance(pos) < DISTURB_RANGE then
 			return true
 		end
 	end
@@ -817,7 +818,7 @@ function ENT:PonderAct(now)
 		return
 	end
 	if act == ACT_STRIKE then
-		self.Goal, self.Pace = self:GetVictim():GetPos(), 1
+		self.Goal, self.Pace = Proxy(self:GetVictim()):GetPos(), 1
 	elseif act == ACT_GRAPPLE or act == ACT_SEAR then
 		self.Goal = nil
 	elseif act == ACT_STUN then
@@ -874,7 +875,7 @@ function ENT:UpdateAct(now)
 			sound.Play(LUNGE_SOUND, self:GetPos(), 75, math.random(60, 75))
 		end
 		if t >= IMPACT_TIME then
-			local center = victim:WorldSpaceCenter()
+			local center = Proxy(victim):WorldSpaceCenter()
 			if center:Distance(self:GetPos()) >= MISS_REACH or not self:Clear(self:GetPos(), victim) then
 				self:Release()
 			elseif victim:IsPlayer() then

@@ -14,6 +14,7 @@ local STRIKE_FEAR = { radius = 600, time = 20 }
 local ESCAPE_FEAR = 90
 local BLEED = 0.02
 local TAKEN_SEDATION = 0.7
+local YANK = { 450, 150 }
 
 local NIP_SOUNDS = {
 	"physics/flesh/flesh_impact_bullet2.wav",
@@ -253,6 +254,23 @@ function Victim.Fall(ply)
 	if not (hg and hg.Fake) then return end
 	if not EvilCrawler.Fake(ply) then hg.Fake(ply, nil, true, true) end
 	return EvilCrawler.Fake(ply)
+end
+
+function Victim.Yank(ply, from)
+	local rag = EvilCrawler.Fake(ply)
+	if not rag then
+		ply:ExitVehicle()
+		return
+	end
+	local pull = (from - rag:GetPos()):GetNormalized() * YANK[1] + vector_up * YANK[2]
+	rag.removingwelds = true
+	for _, weld in pairs(rag.welds or {}) do SafeRemoveEntity(weld) end
+	rag.welds, rag.removingwelds = nil, nil
+	rag:SetParent()
+	for i = 0, rag:GetPhysicsObjectCount() - 1 do rag:GetPhysicsObjectNum(i):SetVelocity(pull) end
+	timer.Simple(0, function()
+		if IsValid(ply) and ply:InVehicle() then ply:ExitVehicle() end
+	end)
 end
 
 function Victim.Slay(ply)
