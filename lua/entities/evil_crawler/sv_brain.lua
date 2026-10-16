@@ -406,7 +406,7 @@ function ENT:Ponder()
 		self:SetPrey(NULL)
 		if self:Scavenge(meal) then return end
 		self:SetState("scavenge")
-		self.Goal = meal:WorldSpaceCenter()
+		self.Goal = self:Heart(meal)
 		return
 	end
 

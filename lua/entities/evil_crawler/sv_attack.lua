@@ -252,15 +252,20 @@ function ENT:IsCarrion(rag)
 	return Rotting(rag)
 end
 
+function ENT:Heart(rag)
+	return Chest(rag):GetPos()
+end
+
 function ENT:Carrion()
 	if EvilCrawler.Setting("eat_corpses") == 0 or not self:IsHungry() then return end
 	local pos, best, bestDist = self:GetPos()
 	for rag in pairs(carrion) do
 		if self:IsCarrion(rag) then
-			local d = rag:WorldSpaceCenter():Distance(pos)
+			local heart = self:Heart(rag)
+			local d = heart:Distance(pos)
 			local mine = rag == self.Leftover
 			if d < (mine and LEFTOVER_RANGE or CARRION_RANGE) and (not best or d < bestDist)
-				and (mine or self:Clear(pos, rag, nil, MASK_OPAQUE)) then
+				and (mine or self:Clear(pos, rag, heart, MASK_OPAQUE)) then
 				best, bestDist = rag, d
 			end
 		end
@@ -269,8 +274,12 @@ function ENT:Carrion()
 end
 
 function ENT:Scavenge(corpse)
-	local center = corpse:WorldSpaceCenter()
-	if center:Distance(self:GetPos()) >= ATTACK_REACH or not self:Clear(self:GetPos(), corpse) then return false end
+	local center = self:Heart(corpse)
+	if center:Distance(self:GetPos()) >= ATTACK_REACH or not self:Clear(self:GetPos(), corpse, center) then return false end
+	for i = 0, corpse:GetPhysicsObjectCount() - 1 do
+		local phys = corpse:GetPhysicsObjectNum(i)
+		if IsValid(phys) then phys:Wake() end
+	end
 	sound.Play(GRAB_SOUNDS[math.random(#GRAB_SOUNDS)], center, 75, math.random(80, 95))
 	self:SetPrey(NULL)
 	self:SetVictim(corpse)
