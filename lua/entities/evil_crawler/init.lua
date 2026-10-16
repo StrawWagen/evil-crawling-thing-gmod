@@ -84,6 +84,7 @@ function ENT:Initialize()
 	self:SetModel("models/props_junk/PopCan01a.mdl")
 	self:SetMoveType(MOVETYPE_NOCLIP)
 	self:SetSolid(SOLID_BBOX)
+	self:SetCollisionGroup(COLLISION_GROUP_WEAPON)
 
 	if self:GetSeed() == 0 then self:SetSeed(math.random(1, 2 ^ 30)) end
 	local morph = EvilCrawler.Grow(self:GetSeed())
