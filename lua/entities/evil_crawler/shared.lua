@@ -140,7 +140,7 @@ end
 function ENT:Trace(from, to, mask)
 	self.TraceFilter = self.TraceFilter or function(e)
 		return e ~= self and not e:IsPlayer() and not e:IsNPC() and not e:IsNextBot() and e:GetClass() ~= "prop_ragdoll"
-			and e:GetCollisionGroup() ~= COLLISION_GROUP_DEBRIS
+			and e:GetCollisionGroup() ~= COLLISION_GROUP_DEBRIS and not (self.Torn and (self.Torn[e] or 0) > CurTime())
 	end
 	return util.TraceLine({ start = from, endpos = to, filter = self.TraceFilter, mask = mask or MASK_SOLID })
 end

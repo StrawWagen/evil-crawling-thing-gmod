@@ -79,6 +79,20 @@ local MUFFLE = 0.5
 local VISIT_CELL = 512
 local VISIT_FORGET = 120
 local HEADINGS = 6
+local TEAR_STALL = 0.75
+local TEAR_LAPSE = 2
+local TEAR_GAP = 0.5
+local TEAR_TIME = { 1.5, 5 }
+local TEAR_MASS = 400
+local TEAR_PASS = 6
+local TEAR_PUSH = 600
+local METAL_STRAIN = {
+	"physics/metal/metal_box_strain1.wav", "physics/metal/metal_box_strain2.wav",
+	"physics/metal/metal_box_strain3.wav", "physics/metal/metal_box_strain4.wav",
+}
+local METAL_BREAK = { "physics/metal/metal_box_break1.wav", "physics/metal/metal_box_break2.wav" }
+local WOOD_STRAIN = { "physics/wood/wood_strain2.wav", "physics/wood/wood_strain3.wav", "physics/wood/wood_strain4.wav" }
+local WOOD_BREAK = { "physics/wood/wood_crate_break1.wav", "physics/wood/wood_crate_break2.wav" }
 local WALL_RANGE = 400
 local SEEK_STEP = 24
 local SEEK_STEPS = 24
@@ -559,7 +573,7 @@ function ENT:CheckProgress(now)
 	local d = self:SurfaceDistance(goal)
 	if d < self.BestDist - 16 or self:Reached(goal) then
 		self.BestDist, self.ProgressTime = d, now
-	elseif now - self.ProgressTime > STUCK_TIME then
+	elseif now - self.ProgressTime > STUCK_TIME and not (self.Tearing and now - self.TearAt < TEAR_LAPSE) then
 		self.BestDist, self.ProgressTime = d, now
 		self.Way = nil
 		self:Unstick(goal, now, 1.5)
@@ -671,8 +685,12 @@ function ENT:Leap(to, now)
 end
 
 function ENT:Bash(door, at)
+	if not DOORS[door:GetClass()] then
+		self:Tear(door, at)
+		return
+	end
 	local now = CurTime()
-	if not DOORS[door:GetClass()] or now < (door.EvilCrawlerBashed or 0) or EvilCrawler.Setting("open_doors") == 0 then return end
+	if now < (door.EvilCrawlerBashed or 0) or EvilCrawler.Setting("open_doors") == 0 then return end
 	door.EvilCrawlerBashed = now + BASH_GAP
 	door:Fire("Unlock")
 	if door:GetClass() == "prop_door_rotating" then
@@ -681,6 +699,49 @@ function ENT:Bash(door, at)
 		door:Fire("Open")
 	end
 	sound.Play(BASH_SOUNDS[math.random(#BASH_SOUNDS)], at, 85, math.random(80, 95))
+end
+
+function ENT:Tear(ent, at)
+	local now = CurTime()
+	if EvilCrawler.Setting("tear") == 0 or ent:IsVehicle() or ent:IsWorld() then return end
+	if not (CHASING[self.State] or self.State == "rage") or now - (self.ProgressTime or now) < TEAR_STALL then return end
+	if self.Tearing ~= ent or now - self.TearAt > TEAR_LAPSE then
+		local phys = ent:GetPhysicsObject()
+		local mass = IsValid(phys) and phys:GetMass() or TEAR_MASS
+		self.Tearing, self.TearStart = ent, now
+		self.TearNeed = Lerp(math.min(1, mass / TEAR_MASS), TEAR_TIME[1], TEAR_TIME[2])
+	end
+	self.TearAt = now
+	local wood = ent:GetMaterialType() == MAT_WOOD
+	if now >= (self.NextRend or 0) then
+		self.NextRend = now + TEAR_GAP * math.Rand(0.7, 1.3)
+		local strain = wood and WOOD_STRAIN or METAL_STRAIN
+		sound.Play(strain[math.random(#strain)], at, 90, math.random(80, 110))
+		util.ScreenShake(at, 2, 8, 0.4, 700)
+		if not wood then
+			local fx = EffectData()
+			fx:SetOrigin(at)
+			fx:SetNormal(-self.Facing)
+			fx:SetMagnitude(2)
+			fx:SetRadius(3)
+			util.Effect("Sparks", fx)
+		end
+		ent:TakeDamage(15, self, self)
+	end
+	if now - self.TearStart < self.TearNeed then return end
+	self.Tearing = nil
+	local snap = wood and WOOD_BREAK or METAL_BREAK
+	sound.Play(snap[math.random(#snap)], at, 95, math.random(80, 100))
+	if not IsValid(ent) then return end
+	self.Torn = self.Torn or {}
+	self.Torn[ent] = now + TEAR_PASS
+	local phys = ent:GetPhysicsObject()
+	if ent:GetMoveType() == MOVETYPE_VPHYSICS and IsValid(phys) then
+		constraint.RemoveAll(ent)
+		phys:EnableMotion(true)
+		phys:Wake()
+		phys:ApplyForceCenter((ent:WorldSpaceCenter() - self:GetPos()):GetNormalized() * phys:GetMass() * TEAR_PUSH)
+	end
 end
 
 function ENT:Veer(now, time)
