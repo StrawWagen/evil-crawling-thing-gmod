@@ -204,6 +204,8 @@ local function Body(ent)
 	rag:SetPos(ent:GetPos())
 	rag:SetAngles(ent:GetAngles())
 	rag:SetSkin(ent:GetSkin())
+	rag:SetColor(ent:GetColor())
+	rag:SetMaterial(ent:GetMaterial())
 	for _, group in ipairs(ent:GetBodyGroups()) do
 		rag:SetBodygroup(group.id, ent:GetBodygroup(group.id))
 	end
