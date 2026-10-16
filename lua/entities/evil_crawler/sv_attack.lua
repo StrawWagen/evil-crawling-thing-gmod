@@ -54,6 +54,7 @@ local LEFTOVER_RANGE = 4000
 local REEK_REFRESH = 40
 local REEK_MOVED = 150
 local FRESH_TIME = 60
+local AIRBORNE = 10
 local REEK_FRESH, REEK_STALE = 3, 1.5
 local carrion = {}
 
@@ -258,14 +259,13 @@ end
 
 function ENT:Carrion()
 	if EvilCrawler.Setting("eat_corpses") == 0 or not self:IsHungry() then return end
-	local pos, best, bestDist = self:GetPos()
+	local now, pos, best, bestDist = CurTime(), self:GetPos()
 	for rag in pairs(carrion) do
 		if self:IsCarrion(rag) then
 			local heart = self:Heart(rag)
 			local d = heart:Distance(pos)
-			local mine = rag == self.Leftover
-			if d < (mine and LEFTOVER_RANGE or CARRION_RANGE) and (not best or d < bestDist)
-				and (mine or self:Clear(pos, rag, heart, MASK_OPAQUE)) then
+			local known = rag == self.Leftover and d < LEFTOVER_RANGE or now - (rag.EvilCrawlerDiedAt or now) > AIRBORNE
+			if (not best or d < bestDist) and (known or d < CARRION_RANGE and self:Clear(pos, rag, heart, MASK_OPAQUE)) then
 				best, bestDist = rag, d
 			end
 		end
