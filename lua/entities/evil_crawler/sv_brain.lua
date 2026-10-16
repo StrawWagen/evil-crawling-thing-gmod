@@ -106,7 +106,7 @@ local RHYTHM = {
 	roam = { pace = 0.09, go = { 3, 8 }, stop = { 1, 4 } },
 	search = { pace = 0.55, go = { 0.3, 0.8 }, stop = { 0.5, 1.6 } },
 	listen = { pace = 0.8, go = { 0.4, 1.1 }, stop = { 0.2, 0.8 }, freeze = { 0.4, 0.9 } },
-	scavenge = { pace = 0.6, go = { 0.4, 1.1 }, stop = { 0.3, 1.2 } },
+	scavenge = { pace = 1.2, go = { 0.6, 1.5 }, stop = { 0.08, 0.3 } },
 	track = { pace = 0.7, go = { 0.4, 1.1 }, stop = { 0.3, 1.2 } },
 	hunt = { pace = 1, go = { 0.6, 1.5 }, stop = { 0.08, 0.3 }, freeze = { 0.3, 0.7 } },
 	chase = { pace = 1, go = { 0.6, 1.5 }, stop = { 0.08, 0.3 } },
@@ -381,6 +381,17 @@ function ENT:Ponder()
 	end
 	if self.State == "rage" and self:Rampage(now) then return end
 	self:Cool(now)
+
+	local meal = not cv_puppet:GetBool() and self:Carrion()
+	if meal then
+		self.Taunt = nil
+		self:SetPrey(NULL)
+		if self:Scavenge(meal) then return end
+		self:SetState("scavenge")
+		self.Goal = self:Heart(meal)
+		return
+	end
+	if (self.State == "flee" or self.State == "hide") and self:Reeks(pos, now) then self:SetState("scavenge") end
 	if self:LyingLow(now) then return end
 
 	self.Puppeting = cv_puppet:GetBool()
@@ -400,16 +411,6 @@ function ENT:Ponder()
 	self.Visited[Cell(pos)] = now
 
 	self:Look(now)
-	local meal = self:Carrion()
-	if meal then
-		self.Taunt = nil
-		self:SetPrey(NULL)
-		if self:Scavenge(meal) then return end
-		self:SetState("scavenge")
-		self.Goal = self:Heart(meal)
-		return
-	end
-
 	local prey = self:Sense()
 	self:SetPrey(prey or NULL)
 	if prey then
@@ -538,6 +539,14 @@ function ENT:Ponder()
 	end
 	self:SetState("roam")
 	self.Goal = pos + self.Heading * 1000
+end
+
+function ENT:Reeks(pos, now)
+	self.Spent = self.Spent or setmetatable({}, { __mode = "k" })
+	self.WeighDeath = self.WeighDeath or function(n, t) return n.trail.death and self:Appeal(n, t) or 0 end
+	self.ReachScent = self.ReachScent or function(n) return self:Smells(n) end
+	local whiff, strength = Scent.Strongest(pos, SNIFF_RADIUS, now, self.WeighDeath, self.ReachScent)
+	return whiff and strength >= SCENT_THRESHOLD
 end
 
 function ENT:FreshHeading(pos, now)
