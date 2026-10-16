@@ -249,8 +249,27 @@ function Victim.Grab(npc, holder)
 	return rag
 end
 
+function Victim.Fall(ply)
+	if not (hg and hg.Fake) then return end
+	if not EvilCrawler.Fake(ply) then hg.Fake(ply, nil, true, true) end
+	return EvilCrawler.Fake(ply)
+end
+
+function Victim.Slay(ply)
+	ply.EvilCrawlerSlain = true
+	ply:Kill()
+	ply.EvilCrawlerSlain = nil
+end
+
 function Victim.Take(ply, holder)
-	local rag = Body(ply)
+	local rag = Victim.Fall(ply)
+	if rag then
+		Hold(rag, ply, holder, TAKEN_SEDATION)
+		Say(rag, "pain", 80)
+		Thrash(rag, 0.8, 4)
+		return rag
+	end
+	rag = Body(ply)
 	if not rag then return end
 
 	local active = ply:GetActiveWeapon()
@@ -300,6 +319,10 @@ function Victim.Kill(rag, attacker)
 	Thrash(rag, 1.5, 4)
 
 	npc.EvilCrawlerBody = nil
+	if EvilCrawler.Fake(npc) == rag then
+		Victim.Slay(npc)
+		return
+	end
 	if npc:IsPlayer() then
 		npc:KillSilent()
 		npc:AddDeaths(1)
@@ -320,9 +343,20 @@ function Victim.Hurt(rag, amount, attacker)
 	if npc:Health() <= 0 then Victim.Kill(rag, attacker) end
 end
 
-function Victim.Wound(rag, attacker)
+function Victim.Wound(rag, attacker, at)
 	local npc = rag.EvilCrawlerOwner
 	if not IsValid(npc) then return end
+	if EvilCrawler.Fake(npc) == rag then
+		local dmg = DamageInfo()
+		dmg:SetDamage(100 * math.Rand(WOUND[1], WOUND[2]))
+		dmg:SetDamageType(DMG_SLASH)
+		dmg:SetAttacker(attacker)
+		dmg:SetInflictor(attacker)
+		dmg:SetDamagePosition(at + attacker.BodyUp * 16)
+		dmg:SetDamageForce(attacker.BodyUp * -1000)
+		rag:TakeDamageInfo(dmg)
+		return
+	end
 	Victim.Hurt(rag, math.max(1, npc:GetMaxHealth()) * math.Rand(WOUND[1], WOUND[2]), attacker)
 end
 
@@ -403,6 +437,13 @@ local function PlayerGetUp(rag, ply)
 end
 
 local function GetUp(rag, npc)
+	if EvilCrawler.Fake(npc) == rag then
+		Victim.bodies[rag] = nil
+		rag.EvilCrawlerOwner = nil
+		npc.EvilCrawlerBody = nil
+		npc.EvilCrawlerFearUntil = CurTime() + ESCAPE_FEAR
+		return
+	end
 	if npc:IsPlayer() then
 		PlayerGetUp(rag, npc)
 		return
@@ -436,10 +477,13 @@ local function Update(rag, now)
 		Victim.bodies[rag] = nil
 		return
 	end
-	npc:SetPos(rag:GetPos())
-	if npc:IsPlayer() then
-		local watch = Watched(rag)
-		if npc:GetObserverTarget() ~= watch then npc:SpectateEntity(watch) end
+	local fake = EvilCrawler.Fake(npc) == rag
+	if not fake then
+		npc:SetPos(rag:GetPos())
+		if npc:IsPlayer() then
+			local watch = Watched(rag)
+			if npc:GetObserverTarget() ~= watch then npc:SpectateEntity(watch) end
+		end
 	end
 
 	local holder = rag.EvilCrawlerHolder
@@ -453,9 +497,11 @@ local function Update(rag, now)
 	else
 		rag.Sedation = math.max(0, rag.Sedation - dt / WEAR_OFF)
 	end
+	if fake and npc.organism.otrub then rag.Sedation = 1 end
 	local lucid = Lucid(rag)
+	local bleeding = rag.Maimed and not fake
 
-	if rag.Maimed then
+	if bleeding then
 		rag.Bled = (rag.Bled or 0) + FrameTime()
 		if rag.Bled >= 0.5 then
 			Victim.Hurt(rag, npc:GetMaxHealth() * BLEED * rag.Bled, game.GetWorld())
@@ -465,7 +511,7 @@ local function Update(rag, now)
 	end
 
 	if not held then
-		if rag.Maimed then
+		if bleeding then
 			if lucid < 0.15 then return end
 			if now >= (rag.NextThrash or 0) then
 				local life = math.Clamp(npc:Health() / math.max(1, npc:GetMaxHealth()), 0.1, 1)
@@ -515,8 +561,8 @@ hook.Add("Think", "EvilCrawlerVictims", function()
 end)
 
 hook.Add("EntityTakeDamage", "EvilCrawlerVictims", function(ent, dmg)
-	if ent.EvilCrawlerBody then return true end
-	if not Victim.Alive(ent) or dmg:IsDamageType(DMG_CRUSH) then return end
+	if ent.EvilCrawlerBody and ent.EvilCrawlerBody ~= ent.FakeRagdoll then return true end
+	if not Victim.Alive(ent) or EvilCrawler.Faker(ent) or dmg:IsDamageType(DMG_CRUSH) then return end
 	local attacker = dmg:GetAttacker()
 	if IsValid(attacker) and (attacker:IsPlayer() or EvilCrawler.Creature(attacker)) then
 		Victim.Hurt(ent, dmg:GetDamage(), attacker)
@@ -530,7 +576,7 @@ hook.Add("EntityRemoved", "EvilCrawlerVictims", function(ent)
 	owner.EvilCrawlerBody = nil
 	if not owner:IsPlayer() then
 		owner:Remove()
-	elseif owner:Alive() then
+	elseif owner:Alive() and owner.FakeRagdoll ~= ent then
 		owner:KillSilent()
 	end
 end)
@@ -551,4 +597,12 @@ hook.Add("PlayerSpawn", "EvilCrawlerVictims", function(ply)
 		if crawler:GetVictim() == ply then crawler:Release() end
 	end
 	ply.EvilCrawlerVictim = nil
+end)
+
+hook.Add("Should Fake Up", "EvilCrawlerVictims", function(ply)
+	if EvilCrawler.Holder(ply) or ply.EvilCrawlerBody then return true end
+end)
+
+hook.Add("CanControlFake", "EvilCrawlerVictims", function(ply, rag)
+	if EvilCrawler.Holder(ply) or Victim.bodies[rag] and rag.Sedation >= 1 then return true end
 end)

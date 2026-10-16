@@ -363,7 +363,7 @@ hook.Add("OnNPCKilled", "EvilCrawlerScent", function(npc, attacker)
 end)
 
 hook.Add("PlayerDeath", "EvilCrawlerScent", function(ply, _, attacker)
-	if Crawler(attacker) then return end
+	if Crawler(attacker) or ply.EvilCrawlerSlain then return end
 	Scent.Reek(ply:GetPos(), nil, FRESH)
 end)
 

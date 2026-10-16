@@ -190,7 +190,7 @@ function ENT:Incinerate(victim)
 
 	if victim:IsPlayer() and victim:InVehicle() then victim:ExitVehicle() end
 	if victim:IsNPC() and IsValid(victim:GetActiveWeapon()) then victim:DropWeapon() end
-	local body = Victim.Body(victim)
+	local body = victim:IsPlayer() and Victim.Fall(victim) or Victim.Body(victim)
 	if not IsValid(body) then
 		local dmg = DamageInfo()
 		dmg:SetDamage(math.max(victim:Health(), 1) * 10 + 1000)
@@ -204,6 +204,10 @@ function ENT:Incinerate(victim)
 	end
 
 	Fling(body, vel)
+	if victim:IsPlayer() and EvilCrawler.Fake(victim) == body then
+		Victim.Slay(victim)
+		return
+	end
 	if victim:IsPlayer() then
 		body:SetNW2Entity(EvilCrawler.OWNER_VAR, victim)
 		body:SetNW2Vector(EvilCrawler.COLOR_VAR, victim:GetPlayerColor())
@@ -681,7 +685,7 @@ function ENT:Rip(phys, corpse)
 	util.Decal("Blood", p, p - up * 200 + VectorRand() * 40, corpse)
 	sound.Play(RIP_SOUNDS[math.random(#RIP_SOUNDS)], p, 72, math.random(85, 110), 0.8)
 
-	Victim.Wound(corpse, self)
+	Victim.Wound(corpse, self, p)
 	self.Eaten = (self.Eaten or 0) + 1
 	local k = math.min(1, self.Eaten / DRAINED)
 	corpse:SetColor(Color(255 - 150 * k, 255 - 205 * k, 255 - 205 * k))
