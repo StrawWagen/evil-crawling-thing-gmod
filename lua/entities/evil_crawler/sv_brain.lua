@@ -1,4 +1,5 @@
 local Scent = EvilCrawler.Scent
+local Hearing = EvilCrawler.Hearing
 local Creature = EvilCrawler.Creature
 
 local cv_puppet = CreateConVar("evil_crawler_puppet", "0", 0, "Crawlers follow their spawner's crosshair instead of thinking")
@@ -73,6 +74,11 @@ local KILL_HITS = 6
 local DEATH_SOUND = "physics/flesh/flesh_bloody_break.wav"
 local DOORS = { prop_door_rotating = true, func_door = true, func_door_rotating = true }
 local BASH_GAP = 2
+local LISTEN_TIME = 12
+local MUFFLE = 0.5
+local VISIT_CELL = 512
+local VISIT_FORGET = 120
+local HEADINGS = 6
 local WALL_RANGE = 400
 local SEEK_STEP = 24
 local SEEK_STEPS = 24
@@ -84,6 +90,7 @@ local BASH_SOUNDS = { "physics/wood/wood_box_impact_hard3.wav", "physics/wood/wo
 local RHYTHM = {
 	roam = { pace = 0.09, go = { 3, 8 }, stop = { 1, 4 } },
 	search = { pace = 0.55, go = { 0.3, 0.8 }, stop = { 0.5, 1.6 } },
+	listen = { pace = 0.8, go = { 0.4, 1.1 }, stop = { 0.2, 0.8 }, freeze = { 0.4, 0.9 } },
 	track = { pace = 0.7, go = { 0.4, 1.1 }, stop = { 0.3, 1.2 } },
 	hunt = { pace = 1, go = { 0.6, 1.5 }, stop = { 0.08, 0.3 }, freeze = { 0.3, 0.7 } },
 	chase = { pace = 1, go = { 0.6, 1.5 }, stop = { 0.08, 0.3 } },
@@ -100,13 +107,13 @@ local RHYTHM = {
 	dead = { pace = 0 },
 }
 local MOOD = {
-	roam = 0, search = 1, track = 1, chase = 2, hunt = 2, strike = 2, drag = 2, feed = 1, flee = 2, hide = 0, grapple = 2,
+	roam = 0, search = 1, listen = 1, track = 1, chase = 2, hunt = 2, strike = 2, drag = 2, feed = 1, flee = 2, hide = 0, grapple = 2,
 	stunned = 0, watch = 2, rage = 2, out = 0, dead = 0,
 }
-local CHASING = { search = true, track = true, chase = true, hunt = true }
+local CHASING = { search = true, listen = true, track = true, chase = true, hunt = true }
 local TRAILING = { track = true, chase = true }
 local STATE_COLOR = {
-	roam = Color(120, 120, 120), search = Color(255, 200, 0), track = Color(255, 120, 0), hunt = Color(255, 0, 0),
+	roam = Color(120, 120, 120), search = Color(255, 200, 0), listen = Color(180, 255, 0), track = Color(255, 120, 0), hunt = Color(255, 0, 0),
 	chase = Color(255, 60, 60), flee = Color(0, 200, 255), hide = Color(0, 80, 160), watch = Color(255, 0, 255), rage = Color(255, 60, 0),
 }
 
@@ -117,6 +124,10 @@ local function Perceivable(ent)
 		and not ent.EvilCrawlerVictim
 		and not EvilCrawler.Noclipping(ent)
 		and ent:GetObserverMode() == OBS_MODE_NONE
+end
+
+local function Cell(p)
+	return math.floor(p.x / VISIT_CELL) .. " " .. math.floor(p.y / VISIT_CELL) .. " " .. math.floor(p.z / VISIT_CELL)
 end
 
 local function Mover(ent)
@@ -362,10 +373,14 @@ function ENT:Ponder()
 		return
 	end
 
+	self.Visited = self.Visited or {}
+	self.Visited[Cell(pos)] = now
+
 	self:Look(now)
 	local prey = self:Sense()
 	self:SetPrey(prey or NULL)
 	if prey then
+		self.Taunt = nil
 		if self:CanAttack(prey) then
 			self:StartStrike(prey)
 			return
@@ -401,6 +416,20 @@ function ENT:Ponder()
 		self:SetState("search")
 		self.Goal = self.LastKnown
 		self.SearchUntil = now + SEARCH_TIME
+	end
+
+	local noise, loud = self:Listen(now)
+	if noise and loud >= (self.State == "listen" and self.Loud * 0.5 or self.State == "chase" and 0.5 or 0) then
+		self:SetState("listen")
+		self.Noise, self.Loud = noise, loud
+		self.Goal, self.LastKnown, self.Trail = noise.pos, noise.pos, nil
+		self.Pace = RHYTHM.listen.pace * Lerp(loud, 0.6, 1.2)
+	end
+	if self.State == "listen" then
+		if not self:Reached(self.Goal) and now - self.Noise.time < LISTEN_TIME then return end
+		self:SetState("search")
+		self.SearchUntil = now + SEARCH_TIME
+		self.Taunt = self.Noise
 	end
 
 	self.Spent = self.Spent or setmetatable({}, { __mode = "k" })
@@ -442,6 +471,7 @@ function ENT:Ponder()
 	end
 	if node then
 		self.Trail = node
+		self.Taunt = nil
 		if node.trail.owner == self.Hunted and now - self.SensedAt < LOST_MEMORY then
 			self:SetState("chase")
 		else
@@ -462,12 +492,55 @@ function ENT:Ponder()
 		return
 	end
 
+	if self.Taunt then
+		local by = self.Taunt.source
+		self:Enrage(IsValid(by) and by:IsPlayer() and by or nil, now)
+		self.Taunt = nil
+	end
 	if self.State ~= "roam" or now > (self.NextVeer or 0) then
-		self.Heading = VectorRand():GetNormalized()
+		self.Heading = self:FreshHeading(pos, now)
 		self.NextVeer = now + math.Rand(4, 9)
 	end
 	self:SetState("roam")
 	self.Goal = pos + self.Heading * 1000
+end
+
+function ENT:FreshHeading(pos, now)
+	local best, bestAge
+	for _ = 1, HEADINGS do
+		local dir = VectorRand():GetNormalized()
+		local seen = self.Visited[Cell(pos + dir * 800)]
+		local age = seen and now - seen or VISIT_FORGET
+		if not best or age > bestAge then best, bestAge = dir, age end
+	end
+	return best
+end
+
+function ENT:Heeds(source)
+	if not IsValid(source) then return true end
+	local owner = source:GetOwner()
+	if IsValid(owner) then source = owner end
+	if source:IsPlayer() then return Perceivable(source) and self:Wants(source) end
+	if Creature(source) then return self:IsHungry() and self:IsEdible(source) end
+	return true
+end
+
+function ENT:Listen(now)
+	local since = self.HeardAt or now
+	self.HeardAt = now
+	local mult = EvilCrawler.Setting("hearing")
+	if mult <= 0 then return end
+	local pos, best, bestLoud = self:GetPos()
+	for _, n in ipairs(Hearing.noises) do
+		if n.time > since and self:Heeds(n.source) then
+			local range = n.range * mult
+			local d = n.pos:Distance(pos)
+			if d < range and self:Trace(pos, n.pos + LIFT).Hit then range = range * MUFFLE end
+			local loud = 1 - d / range
+			if loud > 0 and (not best or loud > bestLoud) then best, bestLoud = n, loud end
+		end
+	end
+	return best, bestLoud
 end
 
 function ENT:CheckProgress(now)

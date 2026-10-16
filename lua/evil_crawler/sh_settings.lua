@@ -47,6 +47,8 @@ EvilCrawler.SETTINGS = {
 		help = "Top speed of a dart" },
 	{ name = "sight_range", default = 4000, min = 0, max = 10000, decimals = 0, label = "Sight range",
 		help = "How far crawlers can see" },
+	{ name = "hearing", default = 1, min = 0, max = 5, decimals = 1, label = "Hearing",
+		help = "How far crawlers hear gunfire, explosions, running and other loud sounds. At 0 they're deaf" },
 	{ name = "show_scent", default = 0, min = 0, max = 1, label = "Show scent trails",
 		help = "Marks scent trails on the ground for everyone: players amber, NPCs green, fear magenta, "
 			.. "a trail a crawler is following cyan, and the spot it's heading for ringed" },
