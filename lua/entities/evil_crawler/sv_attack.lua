@@ -248,7 +248,7 @@ local function Chest(corpse)
 end
 
 local function Rotting(rag)
-	if not IsValid(rag) or Victim.bodies[rag] or rag.EvilCrawlerVictim or not CurrentPart(rag) then return false end
+	if not IsValid(rag) or Victim.bodies[rag] or rag.EvilCrawlerVictim or EvilCrawler.Faker(rag) or not CurrentPart(rag) then return false end
 	local chest = Chest(rag)
 	return IsValid(chest) and chest:IsMotionEnabled()
 end
@@ -305,6 +305,11 @@ end)
 
 hook.Add("EntityRemoved", "EvilCrawlerCarrion", function(ent)
 	carrion[ent] = nil
+end)
+
+hook.Add("PostPlayerDeath", "EvilCrawlerCarrion", function(ply)
+	local rag = ply:GetRagdollEntity()
+	if carrion[rag] then rag.EvilCrawlerDiedAt = CurTime() end
 end)
 
 for _, ent in ipairs(ents.FindByClass("prop_ragdoll")) do
