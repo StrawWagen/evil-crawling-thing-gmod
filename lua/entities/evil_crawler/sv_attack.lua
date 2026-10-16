@@ -92,7 +92,8 @@ local spat = {}
 
 function ENT:IsEdible(ent)
 	if not Creature(ent) or not EvilCrawler.Living(ent) or ent.EvilCrawlerVictim then return false end
-	if ent:IsNPC() and ent:GetMoveType() ~= MOVETYPE_STEP then return false end
+	if ent:IsNextBot() then return true end
+	if ent:GetMoveType() ~= MOVETYPE_STEP then return false end
 	local size = ent:OBBMaxs() - ent:OBBMins()
 	return size.z >= 30 and size.z <= 100 and math.max(size.x, size.y) <= 60
 end
