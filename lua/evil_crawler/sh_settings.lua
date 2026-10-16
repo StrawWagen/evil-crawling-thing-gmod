@@ -11,6 +11,8 @@ EvilCrawler.SETTINGS = {
 		help = "Crawlers shrink down to follow through vents, crawlspaces and low holes" },
 	{ name = "tear", default = 1, min = 0, max = 1, label = "Tears through things",
 		help = "Crawlers chasing someone rip through props, welds and elevators in their way" },
+	{ name = "eat_corpses", default = 1, min = 0, max = 1, label = "Eats corpses",
+		help = "Hungry crawlers drag off and eat ragdolls they find, and come back for ones they dropped" },
 	{ name = "victim_voices", default = 1, min = 0, max = 1, label = "Victims cry out",
 		help = "Grabbed NPCs and players scream for help and cry out while it has them" },
 	{ name = "struggle_time", default = 3.5, min = 0.5, max = 15, decimals = 1, label = "Struggle time",

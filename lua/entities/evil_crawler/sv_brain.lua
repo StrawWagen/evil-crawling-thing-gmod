@@ -105,6 +105,7 @@ local RHYTHM = {
 	roam = { pace = 0.09, go = { 3, 8 }, stop = { 1, 4 } },
 	search = { pace = 0.55, go = { 0.3, 0.8 }, stop = { 0.5, 1.6 } },
 	listen = { pace = 0.8, go = { 0.4, 1.1 }, stop = { 0.2, 0.8 }, freeze = { 0.4, 0.9 } },
+	scavenge = { pace = 0.6, go = { 0.4, 1.1 }, stop = { 0.3, 1.2 } },
 	track = { pace = 0.7, go = { 0.4, 1.1 }, stop = { 0.3, 1.2 } },
 	hunt = { pace = 1, go = { 0.6, 1.5 }, stop = { 0.08, 0.3 }, freeze = { 0.3, 0.7 } },
 	chase = { pace = 1, go = { 0.6, 1.5 }, stop = { 0.08, 0.3 } },
@@ -121,13 +122,13 @@ local RHYTHM = {
 	dead = { pace = 0 },
 }
 local MOOD = {
-	roam = 0, search = 1, listen = 1, track = 1, chase = 2, hunt = 2, strike = 2, drag = 2, feed = 1, flee = 2, hide = 0, grapple = 2,
+	roam = 0, search = 1, listen = 1, scavenge = 1, track = 1, chase = 2, hunt = 2, strike = 2, drag = 2, feed = 1, flee = 2, hide = 0, grapple = 2,
 	stunned = 0, watch = 2, rage = 2, out = 0, dead = 0,
 }
 local CHASING = { search = true, listen = true, track = true, chase = true, hunt = true }
 local TRAILING = { track = true, chase = true }
 local STATE_COLOR = {
-	roam = Color(120, 120, 120), search = Color(255, 200, 0), listen = Color(180, 255, 0), track = Color(255, 120, 0), hunt = Color(255, 0, 0),
+	roam = Color(120, 120, 120), search = Color(255, 200, 0), listen = Color(180, 255, 0), scavenge = Color(140, 0, 0), track = Color(255, 120, 0), hunt = Color(255, 0, 0),
 	chase = Color(255, 60, 60), flee = Color(0, 200, 255), hide = Color(0, 80, 160), watch = Color(255, 0, 255), rage = Color(255, 60, 0),
 }
 
@@ -430,6 +431,15 @@ function ENT:Ponder()
 		self:SetState("search")
 		self.Goal = self.LastKnown
 		self.SearchUntil = now + SEARCH_TIME
+	end
+
+	local meal = self:Carrion()
+	if meal then
+		self.Taunt = nil
+		if self:Scavenge(meal) then return end
+		self:SetState("scavenge")
+		self.Goal = meal:WorldSpaceCenter()
+		return
 	end
 
 	local noise, loud = self:Listen(now)

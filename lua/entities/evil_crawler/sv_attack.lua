@@ -49,6 +49,9 @@ local FLUNG = { 900, 420, 120 }
 local SPIN = 900
 local BURN_TIME = 6
 local CHARRED = Color(70, 50, 45)
+local CARRION_RANGE = 1500
+local LEFTOVER_RANGE = 4000
+local carrion = {}
 
 local WINDUP_SOUNDS = { "npc/barnacle/barnacle_tongue_pull1.wav", "npc/barnacle/barnacle_tongue_pull2.wav" }
 local LUNGE_SOUND = "npc/zombie/claw_miss1.wav"
@@ -212,9 +215,8 @@ end
 
 function ENT:Release()
 	local victim = self:GetVictim()
-	if IsValid(victim) and (Creature(victim) or victim:IsPlayer()) and victim.EvilCrawlerVictim == self then
-		victim.EvilCrawlerVictim = nil
-	end
+	if IsValid(victim) and victim.EvilCrawlerVictim == self then victim.EvilCrawlerVictim = nil end
+	if IsValid(victim) and carrion[victim] and not self.Devoured then self.Leftover = victim end
 	if IsValid(victim) and victim:IsPlayer() then self:LetGo(victim) end
 	self:SetVictim(NULL)
 	self:SetAct(ACT_NONE)
@@ -234,6 +236,55 @@ local function Chest(corpse)
 	local bone = corpse:LookupBone("ValveBiped.Bip01_Spine2")
 	local index = bone and corpse:TranslateBoneToPhysBone(bone) or 0
 	return corpse:GetPhysicsObjectNum(index >= 0 and index or 0)
+end
+
+function ENT:IsCarrion(rag)
+	if not IsValid(rag) or Victim.bodies[rag] or rag.EvilCrawlerVictim or not CurrentPart(rag) then return false end
+	local chest = Chest(rag)
+	return IsValid(chest) and chest:IsMotionEnabled()
+end
+
+function ENT:Carrion()
+	if EvilCrawler.Setting("eat_corpses") == 0 or not self:IsHungry() then return end
+	local pos, best, bestDist = self:GetPos()
+	for rag in pairs(carrion) do
+		if self:IsCarrion(rag) then
+			local d = rag:WorldSpaceCenter():Distance(pos)
+			local mine = rag == self.Leftover
+			if d < (mine and LEFTOVER_RANGE or CARRION_RANGE) and (not best or d < bestDist)
+				and (mine or self:Clear(pos, rag, nil, MASK_OPAQUE)) then
+				best, bestDist = rag, d
+			end
+		end
+	end
+	return best
+end
+
+function ENT:Scavenge(corpse)
+	local center = corpse:WorldSpaceCenter()
+	if center:Distance(self:GetPos()) >= ATTACK_REACH or not self:Clear(self:GetPos(), corpse) then return false end
+	sound.Play(GRAB_SOUNDS[math.random(#GRAB_SOUNDS)], center, 75, math.random(80, 95))
+	self:SetPrey(NULL)
+	self:SetVictim(corpse)
+	self.CarryDir = (center - self:GetPos()):GetNormalized()
+	self.Eaten = 0
+	self:StartDrag(CurTime())
+	return true
+end
+
+hook.Add("OnEntityCreated", "EvilCrawlerCarrion", function(ent)
+	if ent:GetClass() ~= "prop_ragdoll" then return end
+	timer.Simple(0, function()
+		if IsValid(ent) and ent:LookupBone("ValveBiped.Bip01_Spine2") then carrion[ent] = true end
+	end)
+end)
+
+hook.Add("EntityRemoved", "EvilCrawlerCarrion", function(ent)
+	carrion[ent] = nil
+end)
+
+for _, ent in ipairs(ents.FindByClass("prop_ragdoll")) do
+	if ent:LookupBone("ValveBiped.Bip01_Spine2") then carrion[ent] = true end
 end
 
 function ENT:Sate(now)
@@ -419,6 +470,7 @@ function ENT:Overpower(ply, now)
 end
 
 function ENT:StartDrag(now)
+	self:GetVictim().EvilCrawlerVictim = self
 	self:SetAct(ACT_DRAG)
 	self:SetActStart(now)
 	self:SetState("drag")
