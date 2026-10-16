@@ -382,7 +382,8 @@ function ENT:Ponder()
 	if self.State == "rage" and self:Rampage(now) then return end
 	self:Cool(now)
 
-	local meal = not cv_puppet:GetBool() and self:Carrion()
+	local puppet = cv_puppet:GetBool()
+	local meal = not puppet and self:Carrion()
 	if meal then
 		self.Taunt = nil
 		self:SetPrey(NULL)
@@ -391,7 +392,18 @@ function ENT:Ponder()
 		self.Goal = self:Heart(meal)
 		return
 	end
-	if (self.State == "flee" or self.State == "hide") and self:Reeks(pos, now) then self:SetState("scavenge") end
+	local reek = not puppet and self:Reeks(pos, now)
+	if reek then
+		local heart = reek.trail.last
+		if not self:Reached(heart.pos) then
+			self.Taunt = nil
+			self:SetPrey(NULL)
+			self:SetState("scavenge")
+			self.Trail, self.Goal = reek, heart.pos
+			return
+		end
+		self:Spend(heart)
+	end
 	if self:LyingLow(now) then return end
 
 	self.Puppeting = cv_puppet:GetBool()
@@ -543,10 +555,10 @@ end
 
 function ENT:Reeks(pos, now)
 	self.Spent = self.Spent or setmetatable({}, { __mode = "k" })
-	self.WeighDeath = self.WeighDeath or function(n, t) return n.trail.death and self:Appeal(n, t) or 0 end
+	self.WeighDeath = self.WeighDeath or function(n, t) return n.trail.death and n.trail.owner and self:Appeal(n, t) or 0 end
 	self.ReachScent = self.ReachScent or function(n) return self:Smells(n) end
 	local whiff, strength = Scent.Strongest(pos, SNIFF_RADIUS, now, self.WeighDeath, self.ReachScent)
-	return whiff and strength >= SCENT_THRESHOLD
+	return strength >= SCENT_THRESHOLD and whiff
 end
 
 function ENT:FreshHeading(pos, now)
