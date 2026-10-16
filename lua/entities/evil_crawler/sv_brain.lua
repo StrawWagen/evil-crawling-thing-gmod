@@ -43,6 +43,7 @@ local LEAP_RANGE = 800
 local LEAP_SPEED = 600
 local LEAP_ARCS = { 1, 1.5 }
 local LEAP_GAP = 3
+local LEAP_MISS = 150
 local HUNGRY_PULL = 2
 local SNIFF_TIME = 5
 local FEAR_PULL = 1.5
@@ -569,6 +570,7 @@ end
 function ENT:Leap(to, now)
 	if now < (self.NextLeap or 0) or self:GetAct() ~= EvilCrawler.ACT_NONE then return false end
 	local from = self:GetPos()
+	if self.LeapFrom and from:Distance(self.LeapFrom) < LEAP_MISS and to:Distance(self.LeapTo) < LEAP_MISS then return false end
 	local d = to + LIFT - from
 	local dist = d:Length()
 	if dist > LEAP_RANGE or dist < REACHED then return false end
@@ -587,6 +589,7 @@ function ENT:Leap(to, now)
 			self.Vel = vel
 			self.LetGoUntil = now + t * 0.6
 			self.NextLeap = now + t + LEAP_GAP
+			self.LeapFrom, self.LeapTo = from, to
 			self.ProgressTime = now + t
 			return true
 		end
