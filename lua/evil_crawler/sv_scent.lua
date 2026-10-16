@@ -36,8 +36,18 @@ function EvilCrawler.Living(ent)
 	return ent:Health() > 0 or ent:IsNextBot() and ent:GetMaxHealth() <= 0
 end
 
+function EvilCrawler.Fake(ply)
+	local rag = ply.FakeRagdoll
+	return IsValid(rag) and rag
+end
+
+function EvilCrawler.Faker(rag)
+	local ply = rag.ply
+	return IsValid(ply) and ply.FakeRagdoll == rag and ply
+end
+
 function EvilCrawler.Noclipping(ply)
-	return ply:GetMoveType() == MOVETYPE_NOCLIP and not ply:InVehicle()
+	return ply:GetMoveType() == MOVETYPE_NOCLIP and not ply:InVehicle() and not EvilCrawler.Fake(ply)
 end
 
 local function Key(ix, iy, iz)

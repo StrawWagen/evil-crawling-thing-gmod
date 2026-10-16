@@ -387,13 +387,14 @@ function ENT:Seize(ply, now)
 	if ply:InVehicle() then ply:ExitVehicle() end
 	sound.Play(GRAB_SOUNDS[math.random(#GRAB_SOUNDS)], ply:WorldSpaceCenter(), 75, math.random(80, 95))
 
-	self.SeizedAt = ply:GetPos()
+	local rag = EvilCrawler.Fake(ply)
+	self.SeizedAt = rag and Chest(rag):GetPos() or ply:GetPos()
 	self.NextNip = now + math.Rand(NIP_TIME[1], NIP_TIME[2])
 	self.CarryDir = (ply:WorldSpaceCenter() - self:GetPos()):GetNormalized()
 	ply.EvilCrawlerFree = 0
 	ply:SetNW2Float(FREE_VAR, 0)
 	ply:SetNW2Entity(HELD_VAR, self)
-	ply:SetMoveType(MOVETYPE_NONE)
+	if not rag then ply:SetMoveType(MOVETYPE_NONE) end
 	ply:ViewPunch(Angle(-12, math.Rand(-8, 8), math.Rand(-10, 10)))
 	EvilCrawler.Scent.Frighten(ply:GetPos(), 600, 20)
 
@@ -405,7 +406,7 @@ end
 function ENT:LetGo(ply)
 	if EvilCrawler.Holder(ply) ~= self then return end
 	ply:SetNW2Entity(HELD_VAR, NULL)
-	ply:SetMoveType(MOVETYPE_WALK)
+	if not EvilCrawler.Fake(ply) then ply:SetMoveType(MOVETYPE_WALK) end
 end
 
 function ENT:GripOn(ply)
@@ -427,11 +428,17 @@ function ENT:Grapple(ply, now)
 
 	local from = self.SeizedAt
 	local want = from + (self:GetPos() - from) * (REEL * Smooth(t / span)) + vector_up * (LIFT * math.min(1, t * 4))
-	local mins, maxs = ply:GetHull()
-	local tr = util.TraceHull({
-		start = ply:GetPos(), endpos = want, mins = mins, maxs = maxs, mask = MASK_PLAYERSOLID, filter = { ply, self },
-	})
-	if not tr.StartSolid then ply:SetPos(tr.HitPos) end
+	local rag = EvilCrawler.Fake(ply)
+	if rag then
+		local chest = Chest(rag)
+		chest:SetVelocity((want - chest:GetPos()) * 8)
+	else
+		local mins, maxs = ply:GetHull()
+		local tr = util.TraceHull({
+			start = ply:GetPos(), endpos = want, mins = mins, maxs = maxs, mask = MASK_PLAYERSOLID, filter = { ply, self },
+		})
+		if not tr.StartSolid then ply:SetPos(tr.HitPos) end
+	end
 
 	ply.EvilCrawlerFree = math.max(0, ply.EvilCrawlerFree - FrameTime() * self:GripOn(ply))
 	ply:SetNW2Float(FREE_VAR, ply.EvilCrawlerFree)
@@ -475,7 +482,13 @@ function ENT:BrokeFree(ply, now)
 	local away = ply:WorldSpaceCenter() - self:GetPos()
 	away.z = 0
 	away = away:LengthSqr() > 1 and away:GetNormalized() or self.Facing
-	ply:SetVelocity(away * THROWN[1] + vector_up * THROWN[2])
+	local push = away * THROWN[1] + vector_up * THROWN[2]
+	local rag = EvilCrawler.Fake(ply)
+	if rag then
+		for i = 0, rag:GetPhysicsObjectCount() - 1 do rag:GetPhysicsObjectNum(i):AddVelocity(push) end
+	else
+		ply:SetVelocity(push)
+	end
 	ply:ViewPunch(Angle(-15, 0, math.Rand(-10, 10)))
 	self:Stun(ply, now)
 end

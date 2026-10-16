@@ -357,6 +357,8 @@ function ENT:UpdateLimbs()
 	local agit = self.Agitation
 
 	local act, victim, actStart = self:GetAct(), self:GetVictim(), self:GetActStart()
+	local fake = IsValid(victim) and victim:IsPlayer() and victim:GetNWEntity("FakeRagdoll")
+	if IsValid(fake) then victim = fake end
 	local limp = act == ACT_OUT or act == ACT_DEAD
 
 	if act == ACT_NONE then

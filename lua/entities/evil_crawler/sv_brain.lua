@@ -147,7 +147,8 @@ local function Cell(p)
 end
 
 local function Mover(ent)
-	return ent:IsPlayer() and ent:InVehicle() and ent:GetVehicle() or ent
+	if not ent:IsPlayer() then return ent end
+	return ent:InVehicle() and ent:GetVehicle() or EvilCrawler.Fake(ent) or ent
 end
 
 function ENT:Clear(from, ent, to, mask)
