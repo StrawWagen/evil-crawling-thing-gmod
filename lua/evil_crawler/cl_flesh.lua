@@ -8,6 +8,9 @@ Flesh.Material = CreateMaterial("evil_crawler_flesh", "UnlitGeneric", {
 	["$nocull"] = 1,
 })
 
+local skin = Material("evil_crawler/flesh.png", "noclamp smooth mips")
+if not skin:IsError() then Flesh.Material:SetTexture("$basetexture", skin:GetTexture("$basetexture")) end
+
 local AXES = { Vector(1, 0, 0), Vector(-1, 0, 0), Vector(0, 1, 0), Vector(0, -1, 0), Vector(0, 0, 1), Vector(0, 0, -1) }
 local cube = { 0, 0, 0, 0, 0, 0 }
 

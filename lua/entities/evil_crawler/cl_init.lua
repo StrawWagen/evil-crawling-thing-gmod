@@ -80,7 +80,7 @@ local SWIM_SOUNDS = {
 	"player/footsteps/wade4.wav",
 }
 
-local FLESH = Color(44, 34, 40)
+local FLESH = Color(90, 40, 44)
 local BONE = Color(170, 160, 145)
 local BLOOD = Color(80, 6, 8)
 local HOT = Color(255, 60, 15)
