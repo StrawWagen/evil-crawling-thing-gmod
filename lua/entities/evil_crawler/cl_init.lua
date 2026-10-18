@@ -49,6 +49,11 @@ local SAC_SPREAD = 0.07
 local SAC_FILL = 3
 local BOUNDS = 400
 local NONE = {}
+local SWEEP = {}
+for _, a in ipairs({ 20, 55, 90, 125, 160, -35 }) do SWEEP[#SWEEP + 1] = math.rad(a) end
+local WRAP = { 0, 0.3, 0.6 }
+local GROPE = 1.5
+local SEEK_GAP = 0.15
 
 local FOOT_SOUNDS = {
 	"npc/antlion/foot1.wav",
@@ -343,19 +348,59 @@ local function Coil(st, leg, role, root, a, b, r, bulge, t)
 	end
 end
 
-function ENT:FootTarget(root, rest, up)
+function ENT:Seek(root, rest, up, reach)
+	local h = self.BodyHeight
+	for _, k in ipairs(WRAP) do
+		local depth = up * (h + 12 + reach * k)
+		local tr = self:Trace(rest - depth, root - depth)
+		if tr.Hit and not tr.StartSolid and tr.HitPos:DistToSqr(root) < reach * reach then return tr.HitPos, true end
+	end
+
+	local out = rest - root
+	out = (out - up * out:Dot(up)):GetNormalized()
+	local grope, best = nil, math.huge
+	for _, a in ipairs(SWEEP) do
+		local dir = out * math.cos(a) - up * math.sin(a)
+		local tr = self:Trace(root, root + dir * (reach * GROPE))
+		if tr.Hit and not tr.HitSky and not tr.StartSolid then
+			local d = tr.Fraction * GROPE
+			if d < 1 then return tr.HitPos, true end
+			if d < best then grope, best = dir, d end
+		end
+	end
+	if grope then return root + grope * reach, false end
+	return root + (out * 0.4 - vector_up):GetNormalized() * (reach * 0.8), false
+end
+
+function ENT:FootTarget(st, limb, root, rest, up, shrink, now)
 	local h = self.BodyHeight
 
-	local reach = self:Trace(root, rest)
-	if reach.Hit and not reach.HitSky then return reach.HitPos, true end
+	local tr = self:Trace(root, rest)
+	if tr.Hit and not tr.HitSky then return tr.HitPos, true end
 
-	local down = self:Trace(rest, rest - up * (h * 1.6))
-	if down.Hit and not down.HitSky then return down.HitPos, true end
+	tr = self:Trace(rest, rest - up * (h * 1.6))
+	if tr.Hit and not tr.HitSky then return tr.HitPos, true end
 
-	local back = self:Trace(rest - up * (h + 12), root - up * (h + 12))
-	if back.Hit then return back.HitPos, true end
+	local slack = limb.stepDistance * shrink * 0.3
+	if st.sought and now < st.soughtUntil and st.soughtFrom:DistToSqr(rest) < slack * slack then
+		return st.sought, st.soughtGrounded
+	end
+	local target, grounded = self:Seek(root, rest, up, limb.length * shrink * 0.95)
+	st.sought, st.soughtGrounded, st.soughtFrom, st.soughtUntil = target, grounded, rest, now + SEEK_GAP
+	return target, grounded
+end
 
-	return rest - up * (h * 0.6), false
+local function Lift(p, tr, gap)
+	return p + tr.HitNormal * (gap - (p - tr.HitPos):Dot(tr.HitNormal))
+end
+
+function ENT:Unclip(pts, gap)
+	for i = 2, #pts - 1 do
+		local tr = self:Trace(pts[i - 1], pts[i])
+		if tr.Hit and not tr.StartSolid then pts[i] = Lift(pts[i], tr, gap) end
+		tr = self:Trace(pts[i + 1], pts[i])
+		if tr.Hit and not tr.StartSolid then pts[i] = Lift(pts[i], tr, gap) end
+	end
 end
 
 function ENT:NeighboursPlanted(leg)
@@ -422,6 +467,7 @@ function ENT:UpdateLimbs()
 	local loud = math.Clamp(speed / SKITTER[2], 0, 1)
 	local shake = 0.04 + 0.04 * agit
 	local squeezed = math.max(MIN_SHRINK / morph.size, 1 - self:GetSqueeze())
+	local near = EyePos():DistToSqr(pos) < (LOD_DISTANCE * morph.size) ^ 2
 
 	local swimming = self:GetSwimming() and not limp
 	local axis, lift, side, stroke
@@ -474,7 +520,7 @@ function ENT:UpdateLimbs()
 		local shrink = role and 1 or squeezed
 		local yaw = math.rad(limb.angle)
 		local rest = pos + (fwd * math.cos(yaw) + left * math.sin(yaw)) * (limb.length * limb.spread * shrink) + lead
-		local target, grounded = self:FootTarget(root, rest, up)
+		local target, grounded = self:FootTarget(st, limb, root, rest, up, shrink, now)
 		if not grounded then
 			target = target + Wobble(now * 2, limb.phase, limb.freq) * limb.length * 0.2
 		end
@@ -605,6 +651,7 @@ function ENT:UpdateLimbs()
 
 		local bow = swimming and st.ring * (limb.length * 0.1) or up * (limb.length * shrink * (act == ACT_OUT and 0.08 or 0.35))
 		Pose(st, limb, root, foot, bow, now, shake, shrink)
+		if near then self:Unclip(st.points, limb.width) end
 
 		if holding and not st.holdSince then st.holdSince = now end
 		if not holding then st.holdSince = nil end
@@ -655,7 +702,7 @@ function ENT:Draw()
 	if not morph or not self.LimbState then return end
 
 	local pos = self:GetPos()
-	local near = EyePos():DistToSqr(pos) < LOD_DISTANCE * LOD_DISTANCE
+	local near = EyePos():DistToSqr(pos) < (LOD_DISTANCE * morph.size) ^ 2
 	local sides, sub = near and 6 or 4, near and 3 or 1
 
 	drawNow = UnPredictedCurTime()
