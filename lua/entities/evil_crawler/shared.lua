@@ -74,6 +74,7 @@ EvilCrawler.TORSO_BITES = { B .. "Spine2", B .. "Spine1", B .. "Spine", B .. "Pe
 EvilCrawler.EATEN_VAR = "EvilCrawlerEaten"
 EvilCrawler.KEPT_VAR = "EvilCrawlerKept"
 EvilCrawler.WHOLE_VAR = "EvilCrawlerWhole"
+EvilCrawler.SLURP_TIME = 0.9
 EvilCrawler.TAKEN_GROW = 0.25
 EvilCrawler.TAKEN_WITS = 0.06
 EvilCrawler.TAKEN_MAX = 10

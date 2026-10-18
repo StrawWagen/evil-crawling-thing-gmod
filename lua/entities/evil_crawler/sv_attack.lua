@@ -20,6 +20,7 @@ local PARTS, CurrentPart = EvilCrawler.PARTS, EvilCrawler.CurrentPart
 local TORSO_TIME = 6
 local FINISH_TIME = 2
 local GULP_DEPTH = 5
+local HEAVE_DEPTH = 22
 local GULP_RATE = EvilCrawler.GULP_RATE
 local FEED_CAP = 60
 local STAB_FORCE = 120
@@ -633,7 +634,7 @@ function ENT:HoldPoint(now, dt)
 	local mouth = pos
 	if EvilCrawler.Setting("abdomen") > 0 then mouth = pos - up * (math.min(h, self.Room) * EvilCrawler.BELLY.tall) end
 	if self:GetAct() == ACT_FEED and t > 0 then
-		mouth = mouth + up * (GULP_DEPTH * math.max(0, math.sin(t * GULP_RATE * math.pi * 2)) ^ 2)
+		mouth = mouth + up * ((EvilCrawler.Integrating() and HEAVE_DEPTH or GULP_DEPTH) * math.max(0, math.sin(t * GULP_RATE * math.pi * 2)) ^ 2)
 	end
 	return LerpVector(Smooth(self:Pull(now)), carry, mouth)
 end
@@ -729,29 +730,27 @@ end
 
 function ENT:Knead(phys)
 	phys:ApplyForceCenter(-self.BodyUp * phys:GetMass() * STAB_FORCE * 0.4)
-	sound.Play(GRAB_SOUNDS[math.random(#GRAB_SOUNDS)], phys:GetPos(), 62, math.random(60, 75), 0.5)
 end
 
 function ENT:Suck(phys, corpse)
 	local p = phys:GetPos()
 	phys:ApplyForceCenter((self:GetPos() - p):GetNormalized() * phys:GetMass() * RIP_FORCE * 0.5)
-	sound.Play(GRAB_SOUNDS[math.random(#GRAB_SOUNDS)], p, 66, math.random(45, 60), 0.6)
 
 	Victim.Wound(corpse, self, p)
 	self.Eaten = (self.Eaten or 0) + 1
 	local k = math.min(1, self.Eaten / DRAINED)
 	corpse:SetColor(Color(255 - 165 * k, 255 - 190 * k, 255 - 175 * k))
-
-	timer.Simple(EvilCrawler.LUMP_TIME, function()
-		if IsValid(self) then
-			sound.Play(GULP_SOUNDS[math.random(#GULP_SOUNDS)], self:GetPos(), 60, math.random(55, 70), 0.6)
-		end
-	end)
 end
 
-local function Strip(corpse, part)
-	for _, bone in ipairs(EvilCrawler.PartBones(corpse, part)) do
-		corpse:ManipulateBoneScale(bone, Vector(0, 0, 0))
+local function Shrink(corpse, bones)
+	if not IsValid(corpse) then return end
+	for _, bone in ipairs(bones) do corpse:ManipulateBoneScale(bone, Vector(0, 0, 0)) end
+end
+
+local function Strip(corpse, part, delay)
+	local bones = EvilCrawler.PartBones(corpse, part)
+	if delay then timer.Simple(delay, function() Shrink(corpse, bones) end) else Shrink(corpse, bones) end
+	for _, bone in ipairs(bones) do
 		local index = corpse:TranslateBoneToPhysBone(bone)
 		if index >= 0 and corpse:TranslatePhysBoneToBone(index) == bone then
 			local phys = corpse:GetPhysicsObjectNum(index)
@@ -762,7 +761,7 @@ end
 
 function ENT:Consume(corpse, part, now)
 	local p = self:GetPos()
-	Strip(corpse, part)
+	Strip(corpse, part, EvilCrawler.Integrating() and EvilCrawler.SLURP_TIME)
 	self:SetGorged(self:GetGorged() + 1)
 	if EvilCrawler.Integrating() then
 		self:TakeIn(corpse, part, now)
@@ -803,11 +802,6 @@ function ENT:TakeIn(corpse, part, now)
 	corpse:SetNW2Bool(EvilCrawler.WHOLE_VAR, true)
 	corpse:SetNW2Int(EvilCrawler.EATEN_VAR, bit.bor(corpse:GetNW2Int(EvilCrawler.EATEN_VAR, 0), bit.lshift(1, part - 1)))
 	sound.Play(GULP_SOUNDS[math.random(#GULP_SOUNDS)], self:GetPos(), 75, math.random(45, 55))
-	timer.Simple(0.7, function()
-		if IsValid(self) then
-			sound.Play(GULP_SOUNDS[math.random(#GULP_SOUNDS)], self:GetPos(), 65, math.random(40, 50), 0.7)
-		end
-	end)
 
 	local voice = corpse.EvilCrawlerVoice
 	if voice and not corpse.EvilCrawlerInside then
