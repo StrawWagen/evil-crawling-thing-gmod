@@ -60,6 +60,8 @@ local STRANDS = 11
 local STRAND_POINTS = 12
 local MOUTH_TIPS = 7
 local MOUTH_THETA = 0.8 * math.pi
+local TAKEN_MAX = EvilCrawler.TAKEN_MAX
+local TAKEN_SWELL = 0.04
 
 local FOOT_SOUNDS = {
 	"npc/antlion/foot1.wav",
@@ -280,6 +282,17 @@ local function BitePose(victim, seed, k, t, up, now, limb, bites)
 	local bite, out, side = spot(n)
 	local _, from = spot(n - 1)
 	bites[n - 3] = nil
+	if EvilCrawler.Integrating() then
+		local laid = bite + up * 16 + side * 20
+		if u < BITE_IN then
+			return LerpVector(Smooth(u / BITE_IN), from, laid) + Wobble(now * 4, limb.phase, limb.freq) * 2, n, u
+		elseif u < BITE_RIP then
+			local f = (u - BITE_IN) / (BITE_RIP - BITE_IN)
+			return LerpVector(Smooth(f), laid, bite + side * 4) + Wobble(now * 7, limb.phase, limb.freq) * 2, n, u
+		end
+		local f = (u - BITE_RIP) / (1 - BITE_RIP)
+		return LerpVector(Smooth(f), bite + side * 4, bite + up * 30 + side * 10), n, u
+	end
 	local cocked = bite + up * 38 + side * 14
 	local deep = bite + (bite - cocked):GetNormalized() * STAB_DEPTH
 
@@ -636,7 +649,7 @@ function ENT:UpdateLimbs()
 				foot = LerpVector(Smooth(st.work), foot, bite)
 				local stage = u < BITE_IN and 0 or u < BITE_RIP and 1 or 2
 				if st.biteN == n and st.biteStage ~= stage then
-					if stage == 1 then st.blood = 1 end
+					if stage == 1 and not EvilCrawler.Integrating() then st.blood = 1 end
 					if stage == 2 then st.lumps[#st.lumps + 1] = now end
 				end
 				st.biteN, st.biteStage = n, stage
@@ -717,7 +730,7 @@ local function Shaded(r, g, bl, f)
 end
 
 local function StrandRadius(f, s)
-	return s.width * bW * (0.4 + 0.6 * math.sin(math.pi * f) ^ 0.5)
+	return s.width * s.fill * bW * (0.4 + 0.6 * math.sin(math.pi * f) ^ 0.5)
 end
 
 local function StrandColor(f, s)
@@ -752,6 +765,14 @@ function ENT:Bundle(morph)
 			shade = rand(0.8, 1.15), phase = rand(0, 100), freq = rand(0.6, 1.6), points = {},
 		}
 	end
+	for i = 1, TAKEN_MAX do
+		strands[STRANDS + i] = {
+			phi = rand(0, math.pi * 2), span = rand(1.2, 2.2) * math.pi * (rand() < 0.5 and -1 or 1),
+			lat = rand(0.25, 0.7) * math.pi, amp = rand(0.1, 0.3) * math.pi, waves = rand(1, 3), wave = rand(0, math.pi * 2),
+			depth = rand(0.8, 1.05), width = rand(0.14, 0.22), shade = rand(1.15, 1.45), phase = rand(0, 100), freq = rand(0.6, 1.6),
+			points = {}, taken = i,
+		}
+	end
 	morph.bundle = { strands = strands, tips = tips }
 	return morph.bundle
 end
@@ -760,7 +781,9 @@ function ENT:DrawBelly(morph, near)
 	local bundle = self:Bundle(morph)
 	local h = self.BodyHeight * drawRot
 	local squeezed = math.max(MIN_SHRINK / morph.size, 1 - self:GetSqueeze())
-	bW, bT = h * BELLY.wide * math.sqrt(squeezed), h * BELLY.tall * squeezed
+	local inside = math.min(self:Inside(), TAKEN_MAX)
+	local knot = 1 + TAKEN_SWELL * inside
+	bW, bT = h * BELLY.wide * math.sqrt(squeezed) * knot, h * BELLY.tall * squeezed * knot
 	local ang = self:GetAngles()
 	ang:RotateAroundAxis(ang:Up(), self.Churn or 0)
 	bFwd, bLeft, bUp, bCenter = ang:Forward(), -ang:Right(), ang:Up(), self:GetPos()
@@ -773,6 +796,8 @@ function ENT:DrawBelly(morph, near)
 	end
 
 	for _, s in ipairs(bundle.strands) do
+		s.fill = s.taken and math.Clamp(inside - (s.taken - 1), 0, 1) or 1
+		if s.fill <= 0 then break end
 		for i = 1, STRAND_POINTS do
 			local u = (i - 1) / (STRAND_POINTS - 1)
 			local phi = s.phi + s.span * u + 0.15 * math.sin(drawNow * s.freq + s.phase + u * 3)
