@@ -273,8 +273,8 @@ function ENT:Carrion()
 			local closest = not best or dist < bestDist
 			if closest then
 				local remembered = rag == self.Leftover and dist < LEFTOVER_RANGE
-				local scentSpread = now - ( rag.EvilCrawlerDiedAt or now ) > AIRBORNE
-				local noticed = ( remembered or scentSpread or dist < CARRION_RANGE ) and self:Clear( pos, rag, heart, MASK_OPAQUE )
+				local scentSpread = now - (rag.EvilCrawlerDiedAt or now) > AIRBORNE
+				local noticed = (remembered or scentSpread) and (dist < CARRION_RANGE and self:Clear(pos, rag, heart, MASK_OPAQUE))
 				if noticed then
 					best, bestDist = rag, dist
 				end
