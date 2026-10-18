@@ -7,6 +7,7 @@ local SCAN_INTERVAL = 0.5
 local DRIP_TIME = 25
 local DRAW_DISTANCE = 2500
 local STRANDS = 5
+local SLURP_TIME = EvilCrawler.SLURP_TIME
 
 local MEAT = Color(70, 6, 9)
 local SINEW = Color(120, 22, 24)
@@ -33,6 +34,41 @@ local function StumpAt(rag, stump)
 	return b and rag:GetBonePosition(b), below and rag:GetBonePosition(below)
 end
 
+local function Smooth(t)
+	return t * t * (3 - 2 * t)
+end
+
+local function Mouth(rag)
+	local eater = rag.EvilCrawlerEater
+	if not IsValid(eater) or eater:GetVictim() ~= rag then return end
+	local p = eater:GetPos()
+	if EvilCrawler.Setting("abdomen") > 0 then p = p - eater:GetUp() * (eater.BodyHeight * EvilCrawler.BELLY.tall) end
+	return p
+end
+
+local held = {}
+
+local function Slurp(rag, bones, into, t)
+	local far = 1
+	for k, b in ipairs(bones) do
+		local m = rag:GetBoneMatrix(b)
+		held[k] = m
+		if m then far = math.max(far, m:GetTranslation():Distance(into)) end
+	end
+	for k, b in ipairs(bones) do
+		local m = held[k]
+		if m then
+			local at = m:GetTranslation()
+			local p = Smooth(math.Clamp((t - at:Distance(into) / far * 0.5) / 0.5, 0, 1))
+			local s = (1 - p) * (1 + 1.2 * math.sin(math.pi * p))
+			m:SetTranslation(LerpVector(p, at, into))
+			m:Scale(Vector(s, s, s))
+			rag:SetBoneMatrix(b, m)
+		end
+		held[k] = nil
+	end
+end
+
 local function Fold(rag)
 	local mask = rag.EvilCrawlerMask
 	if not mask or mask == 0 then return end
@@ -42,6 +78,9 @@ local function Fold(rag)
 	local grip = current and rag:LookupBone(PARTS[current].grip[1])
 	local m = grip and rag:GetBoneMatrix(grip)
 	if m then into = m:GetTranslation() end
+	local whole = rag:GetNW2Bool(WHOLE_VAR)
+	local mouth = whole and Mouth(rag)
+	local now = CurTime()
 
 	for i in ipairs(PARTS) do
 		if Has(mask, i) then
@@ -51,7 +90,10 @@ local function Fold(rag)
 				local own = bones[1] and rag:GetBoneMatrix(bones[1])
 				p = own and own:GetTranslation()
 			end
-			if p then
+			local age = whole and rag.EvilCrawlerSlurp and now - (rag.EvilCrawlerSlurp[i] or 0)
+			if age and age < SLURP_TIME then
+				Slurp(rag, bones, mouth or p or rag:GetPos(), age / SLURP_TIME)
+			elseif p then
 				local point = Matrix({ { 0, 0, 0, p.x }, { 0, 0, 0, p.y }, { 0, 0, 0, p.z }, { 0, 0, 0, 1 } })
 				for _, b in ipairs(bones) do rag:SetBoneMatrix(b, point) end
 			end
@@ -59,7 +101,17 @@ local function Fold(rag)
 	end
 end
 
-local function Track(rag, mask)
+local function Track(rag, mask, live)
+	if live then
+		local had = rag.EvilCrawlerMask or 0
+		rag.EvilCrawlerSlurp = rag.EvilCrawlerSlurp or {}
+		for i in ipairs(PARTS) do
+			if Has(mask, i) and not Has(had, i) then rag.EvilCrawlerSlurp[i] = CurTime() end
+		end
+		for _, crawler in ipairs(ents.FindByClass("evil_crawler")) do
+			if crawler:GetVictim() == rag then rag.EvilCrawlerEater = crawler end
+		end
+	end
 	rag.EvilCrawlerMask = mask
 	if not rag.EvilCrawlerFolding then
 		rag.EvilCrawlerFolding = true
@@ -79,7 +131,7 @@ local function Track(rag, mask)
 end
 
 hook.Add("EntityNetworkedVarChanged", "EvilCrawlerRemains", function(ent, name, _, mask)
-	if name == EATEN_VAR and mask and mask ~= 0 then Track(ent, mask) end
+	if name == EATEN_VAR and mask and mask ~= 0 then Track(ent, mask, true) end
 end)
 
 timer.Create("EvilCrawlerRemains", SCAN_INTERVAL, 0, function()

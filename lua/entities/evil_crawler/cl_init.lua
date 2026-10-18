@@ -62,6 +62,10 @@ local MOUTH_TIPS = 7
 local MOUTH_THETA = 0.8 * math.pi
 local TAKEN_MAX = EvilCrawler.TAKEN_MAX
 local TAKEN_SWELL = 0.04
+local HEAVE = 0.22
+local HEAVE_TIME = 1.6
+local LUMP_HEAVE = 0.25
+local BULGE = 0.35
 
 local FOOT_SOUNDS = {
 	"npc/antlion/foot1.wav",
@@ -657,7 +661,10 @@ function ENT:UpdateLimbs()
 		else
 			st.nextSwallow = nil
 		end
-		while st.lumps[1] and now - st.lumps[1] > LUMP_TIME do table.remove(st.lumps, 1) end
+		while st.lumps[1] and now - st.lumps[1] > LUMP_TIME do
+			table.remove(st.lumps, 1)
+			if EvilCrawler.Integrating() then self:Heave(now, LUMP_HEAVE) end
+		end
 		st.blood = math.max(0, st.blood - dt * 0.02)
 
 		local bow = swimming and st.ring * (limb.length * 0.1) or up * (limb.length * shrink * (act == ACT_OUT and 0.08 or 0.35))
@@ -675,7 +682,25 @@ function ENT:UpdateLimbs()
 	end
 end
 
-local drawing, drawNow, drawHeat, drawRot, drawFull
+local drawing, drawNow, drawHeat, drawRot, drawFull, drawWhole, drawJiggle
+
+function ENT:Heave(now, power)
+	self.Heaves = self.Heaves or {}
+	self.Heaves[#self.Heaves + 1] = { at = now, power = power }
+end
+
+function ENT:Jiggle(now)
+	local heaves, j = self.Heaves or NONE, 0
+	for i = #heaves, 1, -1 do
+		local a = now - heaves[i].at
+		if a > HEAVE_TIME then
+			table.remove(heaves, i)
+		else
+			j = j + heaves[i].power * HEAVE * math.exp(-a * 4) * math.cos(a * 14)
+		end
+	end
+	return j
+end
 
 local function LimbRadius(f, limb)
 	local r = limb.width * (1 - 0.9 * f ^ 1.3)
@@ -684,12 +709,13 @@ local function LimbRadius(f, limb)
 		r = r + limb.width * 0.12 * math.exp(-d * d)
 	end
 	for _, born in ipairs(drawing.lumps) do
-		local d = (f - (1 - (drawNow - born) / LUMP_TIME)) / 0.07
-		r = r + limb.width * 0.9 * math.exp(-d * d)
+		local d = (f - (1 - (drawNow - born) / LUMP_TIME)) / (drawWhole and 0.1 or 0.07)
+		r = r + limb.width * (drawWhole and 1.6 or 0.9) * math.exp(-d * d)
 	end
 	if drawFull > 0 then
 		r = r * (1 + drawFull * (1 + 0.08 * math.sin(drawNow * 1.3 + limb.phase)))
 	end
+	if drawJiggle ~= 0 then r = r * (1 + drawJiggle * (1 - f) ^ 2) end
 	return r * drawRot
 end
 
@@ -773,7 +799,7 @@ function ENT:DrawBelly(morph, near)
 	local squeezed = math.max(MIN_SHRINK / morph.size, 1 - self:GetSqueeze())
 	local inside = math.min(self:Inside(), TAKEN_MAX)
 	local knot = 1 + TAKEN_SWELL * inside
-	bW, bT = h * BELLY.wide * math.sqrt(squeezed) * knot, h * BELLY.tall * squeezed * knot
+	bW, bT = h * BELLY.wide * math.sqrt(squeezed) * knot * (1 + drawJiggle), h * BELLY.tall * squeezed * knot * (1 - 0.6 * drawJiggle)
 	local ang = self:GetAngles()
 	ang:RotateAroundAxis(ang:Up(), self.Churn or 0)
 	bFwd, bLeft, bUp, bCenter = ang:Forward(), -ang:Right(), ang:Up(), self:GetPos()
@@ -784,6 +810,14 @@ function ENT:DrawBelly(morph, near)
 	if self:GetAct() == ACT_FEED and since > 0 then
 		gape = 0.45 + 0.55 * math.max(0, math.sin(since * GULP_RATE * math.pi * 2)) ^ 2
 	end
+	local wave, pump
+	if drawWhole and self:GetAct() == ACT_FEED and since > 0 then
+		local c = (since * GULP_RATE) % 1
+		if c > 0.25 then
+			local f = (c - 0.25) / 0.75
+			wave, pump = 1 - f, math.sin(math.pi * f)
+		end
+	end
 
 	for _, s in ipairs(bundle.strands) do
 		s.fill = s.taken and math.Clamp(inside - (s.taken - 1), 0, 1) or 1
@@ -793,7 +827,12 @@ function ENT:DrawBelly(morph, near)
 			local phi = s.phi + s.span * u + 0.15 * math.sin(drawNow * s.freq + s.phase + u * 3)
 			local theta = math.Clamp(s.lat + s.amp * math.sin(s.waves * u * math.pi * 2 + s.wave), 0.12 * math.pi, MOUTH_THETA)
 			local tuck = 1 - 0.45 * math.max(0, 1 - math.min(u, 1 - u) / 0.15)
-			s.points[i] = Shell(phi, theta, s.depth * tuck * (1 + 0.04 * math.sin(drawNow * 1.4 + s.phase + u * 6)))
+			local k = s.depth * tuck * (1 + 0.04 * math.sin(drawNow * 1.4 + s.phase + u * 6))
+			if wave then
+				local d = (theta / MOUTH_THETA - wave) / 0.2
+				k = k * (1 + BULGE * pump * math.exp(-d * d))
+			end
+			s.points[i] = Shell(phi, theta, k)
 		end
 		Flesh.Tube(s.points, sides, sub, StrandRadius, StrandColor, s)
 	end
@@ -829,6 +868,11 @@ function ENT:Draw()
 		drawRot = 1 - Smooth(math.Clamp((drawNow - self:GetActStart() - (CORPSE_TIME - ROT_TIME)) / ROT_TIME, 0, 1))
 		if drawRot <= 0 then return end
 	end
+	drawWhole = EvilCrawler.Integrating()
+	local taken = self:GetTaken()
+	if self.SeenTaken and taken > self.SeenTaken then self:Heave(drawNow, 1) end
+	self.SeenTaken = taken
+	drawJiggle = drawWhole and self:Jiggle(drawNow) or 0
 	drawFull = 0
 	for _, born in ipairs(morph.meals or NONE) do
 		drawFull = drawFull + MEAL_GAIN * Smooth(math.min(1, (drawNow - born) / MEAL_FILL))
