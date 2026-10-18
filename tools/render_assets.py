@@ -20,11 +20,6 @@ FLESH = (44, 34, 40)
 BONE = (170, 160, 145)
 
 SHOTS = {
-    "icon": dict(at=(-2000, -3300, -200), toward=(0, 0, -1), yaw=200, size=(512, 512), cam=(-3.2, -3.0, 4.4),
-                 look=(0, 0, -0.3), lens=50, exposure=1.6),
-    "icon_loose": dict(at=(-2720, -1170, 100), toward=(0, 0, 1), yaw=0, size=(512, 512), cam=(4.0, 3.0, 4.2),
-                       look=(0, 0, -0.2), lens=40, exposure=2.2,
-                       fill=[("AREA", (3, 3, 3.5), 60, (0.6, 0.72, 1.0), 2.0)]),
     "thumbnail": dict(at=(-2250, -1400, 0), toward=(0, 0, -1), yaw=0, size=(1024, 1024), cam=(-4.4, -3.2, 2.3),
                       look=(0.2, 0, -0.45), lens=40, exposure=0.4),
     "preview_floor": dict(at=(-2000, -3300, -200), toward=(0, 0, -1), yaw=30, size=(1920, 1080), cam=(-6.0, -4.0, 2.8),
