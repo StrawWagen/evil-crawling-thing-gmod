@@ -20,7 +20,7 @@ local PARTS, CurrentPart = EvilCrawler.PARTS, EvilCrawler.CurrentPart
 local TORSO_TIME = 6
 local FINISH_TIME = 2
 local GULP_DEPTH = 5
-local GULP_RATE = 1.7
+local GULP_RATE = EvilCrawler.GULP_RATE
 local FEED_CAP = 60
 local STAB_FORCE = 120
 local RIP_FORCE = 350
@@ -620,8 +620,9 @@ function ENT:HoldPoint(now, dt)
 	local carry = pos - up * (h * 0.6) + dir * (h * 1.1)
 	local t = now - self:GetActStart() - PULL_TIME
 	local mouth = pos
+	if EvilCrawler.Setting("abdomen") > 0 then mouth = pos - up * (math.min(h, self.Room) * EvilCrawler.BELLY.tall) end
 	if self:GetAct() == ACT_FEED and t > 0 then
-		mouth = pos + up * (GULP_DEPTH * math.max(0, math.sin(t * GULP_RATE * math.pi * 2)) ^ 2)
+		mouth = mouth + up * (GULP_DEPTH * math.max(0, math.sin(t * GULP_RATE * math.pi * 2)) ^ 2)
 	end
 	return LerpVector(Smooth(self:Pull(now)), carry, mouth)
 end
