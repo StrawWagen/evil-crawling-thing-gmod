@@ -269,10 +269,15 @@ function ENT:Carrion()
 	for rag in pairs(carrion) do
 		if self:IsCarrion(rag) then
 			local heart = self:Heart(rag)
-			local d = heart:Distance(pos)
-			local known = rag == self.Leftover and d < LEFTOVER_RANGE or now - (rag.EvilCrawlerDiedAt or now) > AIRBORNE
-			if (not best or d < bestDist) and (known or d < CARRION_RANGE and self:Clear(pos, rag, heart, MASK_OPAQUE)) then
-				best, bestDist = rag, d
+			local dist = heart:Distance( pos )
+			local closest = not best or dist < bestDist
+			if closest then
+				local remembered = rag == self.Leftover and dist < LEFTOVER_RANGE
+				local scentSpread = now - ( rag.EvilCrawlerDiedAt or now ) > AIRBORNE
+				local noticed = ( remembered or scentSpread or dist < CARRION_RANGE ) and self:Clear( pos, rag, heart, MASK_OPAQUE )
+				if noticed then
+					best, bestDist = rag, dist
+				end
 			end
 		end
 	end
