@@ -101,6 +101,9 @@ local MAX_BONES = 60
 local MAX_VOICES = 12
 local MURMUR_GAP = { 25, 60 }
 local MUFFLED = 15
+local PILOT_STRIKE_GAP = 0.25
+local PILOT_AIM = 0.3
+local INSIDE_VAR = EvilCrawler.INSIDE_VAR
 local spat = {}
 
 function ENT:IsEdible(ent)
@@ -231,6 +234,7 @@ function ENT:Release()
 	local victim = self:GetVictim()
 	if IsValid(victim) and victim.EvilCrawlerVictim == self then victim.EvilCrawlerVictim = nil end
 	if IsValid(victim) and carrion[victim] and not self.Devoured then self.Leftover = victim end
+	if IsValid(victim) and not self.Devoured and victim.EvilCrawlerPlayer then self:LetGoOf(victim.EvilCrawlerPlayer) end
 	if IsValid(victim) and victim:IsPlayer() then self:LetGo(victim) end
 	self:SetVictim(NULL)
 	self:SetAct(ACT_NONE)
@@ -555,6 +559,10 @@ function ENT:FeedHere(now)
 end
 
 function ENT:StartDrag(now)
+	if self:Piloted() then
+		self:FeedHere(now)
+		return
+	end
 	self:GetVictim().EvilCrawlerVictim = self
 	self:SetAct(ACT_DRAG)
 	self:SetActStart(now)
@@ -811,6 +819,7 @@ function ENT:TakeIn(corpse, part, now)
 		if #self.Voices > MAX_VOICES then table.remove(self.Voices, 1) end
 	end
 	self:Swallowed(corpse, part, now)
+	self:KeepInside(corpse.EvilCrawlerPlayer)
 end
 
 function ENT:Murmur(now)
@@ -823,6 +832,90 @@ function ENT:Murmur(now)
 	local lines = IsValid(self:GetPrey()) and v.lines.help or v.lines.die
 	self:EmitSound(lines[math.random(#lines)], 68, (v.pitch or 100) - 8, 0.6, CHAN_VOICE, 0, MUFFLED)
 end
+
+function ENT:Piloted()
+	local ply = self:GetPilot()
+	if IsValid(ply) and not ply:Alive() and EvilCrawler.Inside(ply) == self then return ply end
+end
+
+function ENT:KeepInside(ply)
+	if not IsValid(ply) or ply:Alive() or EvilCrawler.Setting("pilot") == 0 or EvilCrawler.Inside(ply) then return end
+	ply:SetNW2Entity(INSIDE_VAR, self)
+end
+
+function ENT:Board(ply)
+	if not IsValid(ply) or EvilCrawler.Inside(ply) ~= self then return end
+	if self:Piloted() then
+		self:LetGoOf(ply)
+		return
+	end
+	self:SetPilot(ply)
+	ply:Spectate(OBS_MODE_CHASE)
+	ply:SpectateEntity(self)
+end
+
+function ENT:LetGoOf(ply)
+	if not IsValid(ply) or EvilCrawler.Inside(ply) ~= self then return end
+	ply:SetNW2Entity(INSIDE_VAR, NULL)
+	ply.EvilCrawlerDrive = nil
+	if self:GetPilot() == ply then self:SetPilot(NULL) end
+end
+
+function ENT:LetOut(ply)
+	self:LetGoOf(ply)
+	if ply:Alive() then return end
+	ply:UnSpectate()
+	ply:Spawn()
+end
+
+function ENT:Empty()
+	for _, ply in ipairs(player.GetAll()) do self:LetGoOf(ply) end
+end
+
+local function Takeable(ply)
+	return not EvilCrawler.IgnoresPlayers() and ply:Alive() and not ply:HasGodMode() and not ply.EvilCrawlerVictim
+		and ply:LookupBone("ValveBiped.Bip01_Spine2") ~= nil
+end
+
+function ENT:PilotStrike(pilot, aim)
+	local now = CurTime()
+	if now < (self.NextPilotStrike or 0) then return end
+	self.NextPilotStrike = now + PILOT_STRIKE_GAP
+	local pos, best, bestDot = self:GetPos(), nil, PILOT_AIM
+	for _, ent in ipairs(ents.FindInSphere(pos, ATTACK_REACH * self.Scale)) do
+		if ent ~= pilot and ent ~= self and (ent:IsPlayer() and Takeable(ent) or not ent:IsPlayer() and self:IsEdible(ent)) then
+			local d = (Proxy(ent):WorldSpaceCenter() - pos):GetNormalized():Dot(aim)
+			if d > bestDot and self:Clear(pos, ent) then best, bestDot = ent, d end
+		end
+	end
+	if best then self:StartStrike(best) end
+end
+
+hook.Add("StartCommand", "EvilCrawlerPilot", function(ply, cmd)
+	local crawler = EvilCrawler.Inside(ply)
+	if not crawler then
+		ply.EvilCrawlerLetGo = nil
+		return
+	end
+	local now = CurTime()
+	if cmd:KeyDown(IN_USE) then
+		ply.EvilCrawlerLetGo = ply.EvilCrawlerLetGo or now
+		if now - ply.EvilCrawlerLetGo >= EvilCrawler.LET_GO_TIME then crawler:LetOut(ply) end
+	else
+		ply.EvilCrawlerLetGo = nil
+	end
+	ply.EvilCrawlerDrive = { fwd = cmd:GetForwardMove(), side = cmd:GetSideMove(), ang = cmd:GetViewAngles(), buttons = cmd:GetButtons() }
+	cmd:ClearButtons()
+end)
+
+hook.Add("PlayerDeathThink", "EvilCrawlerPilot", function(ply)
+	if EvilCrawler.Inside(ply) then return false end
+end)
+
+hook.Add("PlayerSpawn", "EvilCrawlerPilot", function(ply)
+	local crawler = EvilCrawler.Inside(ply)
+	if crawler then crawler:LetGoOf(ply) end
+end)
 
 function ENT:Spit(models)
 	if not models then return end
@@ -926,11 +1019,14 @@ function ENT:PonderAct(now)
 		self.Goal = nil
 		local victim = self:GetVictim()
 		local shared = EvilCrawler.Shared(victim)
-		if not self.Devoured and not shared and self:Disturbed() then
+		if not self.Devoured and not shared and not self:Piloted() and self:Disturbed() then
 			self:StartDrag(now)
 		elseif now > self.FeedUntil then
 			if Victim.Alive(victim) then Victim.Kill(victim, self) end
-			if self.Devoured and not shared then victim:Remove() end
+			if self.Devoured and not shared then
+				self:Board(victim.EvilCrawlerPlayer)
+				victim:Remove()
+			end
 			self:Sate(now)
 			self:Release()
 		end
@@ -980,6 +1076,7 @@ end
 
 function ENT:OnRemove()
 	self:Release()
+	self:Empty()
 	if self.Roar then self.Roar:Stop() end
 	if self.Breath then self.Breath:Stop() end
 end

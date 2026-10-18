@@ -4,6 +4,13 @@ EvilCrawler.HELD_VAR = "EvilCrawlerHeld"
 EvilCrawler.FREE_VAR = "EvilCrawlerFree"
 EvilCrawler.OWNER_VAR = "EvilCrawlerOwner"
 EvilCrawler.COLOR_VAR = "EvilCrawlerColor"
+EvilCrawler.INSIDE_VAR = "EvilCrawlerInside"
+EvilCrawler.LET_GO_TIME = 1.5
+
+function EvilCrawler.Inside(ply)
+	local crawler = ply:GetNW2Entity(EvilCrawler.INSIDE_VAR)
+	return IsValid(crawler) and crawler
+end
 
 function EvilCrawler.StruggleTime()
 	return math.max(0.5, EvilCrawler.Setting("struggle_time"))

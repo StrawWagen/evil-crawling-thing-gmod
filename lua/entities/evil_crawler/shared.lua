@@ -157,6 +157,7 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Bool", 0, "Swimming")
 	self:NetworkVar("Int", 3, "Gorged")
 	self:NetworkVar("Int", 4, "Taken")
+	self:NetworkVar("Entity", 2, "Pilot")
 end
 
 function ENT:Inside()

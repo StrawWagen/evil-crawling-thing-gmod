@@ -78,6 +78,7 @@ local DOORS = { prop_door_rotating = true, func_door = true, func_door_rotating 
 local BASH_GAP = 2
 local LISTEN_TIME = 12
 local MUFFLE = 0.5
+local PILOT_PACE = { 0.35, 1 }
 local VISIT_CELL = 512
 local VISIT_FORGET = 120
 local HEADINGS = 6
@@ -380,6 +381,11 @@ function ENT:Ponder()
 
 	if self:GetAct() ~= EvilCrawler.ACT_NONE then
 		self:PonderAct(now)
+		return
+	end
+	if self:Piloted() then
+		self.Goal, self.Way, self.Trail = nil, nil, nil
+		self:SetPrey(NULL)
 		return
 	end
 	if self.State == "rage" and self:Rampage(now) then return end
@@ -860,6 +866,9 @@ function ENT:Steer()
 		end
 	end
 
+	local pilot = self:Piloted()
+	if pilot and self:GetAct() == EvilCrawler.ACT_NONE then return self:Drive(pilot, now) end
+
 	local burst = EvilCrawler.Setting("burst") * self:Winded()
 	if self.DetourUntil and now < self.DetourUntil then
 		return self:GetPos() + self.Detour, (self.Pace or 0) * burst, SNAP
@@ -1098,6 +1107,7 @@ function ENT:Die()
 	if self.Breath then self.Breath:Stop() end
 	self:Regroup()
 	if IsValid(self.Eye) then self.Eye:Remove() end
+	self:Empty()
 	for _ = 1, 4 do
 		local fx = EffectData()
 		fx:SetOrigin(pos + VectorRand() * 12)
@@ -1303,6 +1313,29 @@ function ENT:Cool(now)
 		self.CalmAt = now + ANGER_FADE
 		if self.Anger == 0 then self.Grudge = nil end
 	end
+end
+
+local function Flat(v, up)
+	return v - up * v:Dot(up)
+end
+
+function ENT:Drive(pilot, now)
+	local input = pilot.EvilCrawlerDrive
+	if not input then return nil, 0, SNAP end
+	local pos, up = self:GetPos(), self.BodyUp
+	local ang = input.ang
+	local aim = ang:Forward()
+	if bit.band(input.buttons, IN_ATTACK) ~= 0 then self:PilotStrike(pilot, aim) end
+	if bit.band(input.buttons, IN_JUMP) ~= 0 then
+		local tr = self:Trace(pos, pos + aim * LEAP_RANGE)
+		if self:Leap(tr.HitPos - aim * 16, now) then return nil, 0, SNAP end
+	end
+
+	local ahead = Flat(aim, up) + Flat(ang:Up(), up) * math.max(0, -aim:Dot(up))
+	local wish = ahead:GetNormalized() * math.Clamp(input.fwd, -1, 1) + Flat(ang:Right(), up):GetNormalized() * math.Clamp(input.side, -1, 1)
+	if wish:LengthSqr() < 0.01 then return nil, 0, SNAP end
+	local pace = bit.band(input.buttons, IN_SPEED) ~= 0 and PILOT_PACE[2] or PILOT_PACE[1]
+	return pos + wish:GetNormalized() * (self.BodyHeight * 4), pace * EvilCrawler.Setting("burst") * self:Winded(), SNAP
 end
 
 function ENT:PuppetGoal()
