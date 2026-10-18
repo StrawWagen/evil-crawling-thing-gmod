@@ -49,5 +49,5 @@ local function Build(panel)
 end
 
 hook.Add("PopulateToolMenu", "EvilCrawlerSettings", function()
-	spawnmenu.AddToolMenuOption("Utilities", "Evil Crawling Thing", "evil_crawler_settings", "Settings", "", "", Build)
+	spawnmenu.AddToolMenuOption("Utilities", "Syhgma's Evil Entities", "evil_crawler_settings", "Evil Crawling Thing", "", "", Build)
 end)

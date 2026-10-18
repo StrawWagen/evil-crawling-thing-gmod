@@ -3,7 +3,7 @@ AddCSLuaFile()
 ENT.Type = "anim"
 ENT.Base = "base_anim"
 ENT.PrintName = "Evil Crawler (somewhere)"
-ENT.Category = "Evil Crawling Thing"
+ENT.Category = "Syhgma's Evil Entities"
 ENT.Spawnable = true
 
 if CLIENT then return end

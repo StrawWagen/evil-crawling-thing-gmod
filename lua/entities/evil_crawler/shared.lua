@@ -119,7 +119,7 @@ end
 ENT.Type = "anim"
 ENT.Base = "base_anim"
 ENT.PrintName = "Evil Crawler"
-ENT.Category = "Evil Crawling Thing"
+ENT.Category = "Syhgma's Evil Entities"
 ENT.Spawnable = true
 ENT.RenderGroup = RENDERGROUP_OPAQUE
 
