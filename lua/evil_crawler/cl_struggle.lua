@@ -10,6 +10,9 @@ local PULSE_TIME = 0.12
 local VIGNETTE_STEPS = 24
 local VIGNETTE_DEPTH = 0.45
 local WATCHING = 0.55
+local PILOTING = 0.2
+local EXIT_Y = 0.88
+local EXIT_SIZE = { 64, 34 }
 local ORBIT_DISTANCE = 3.6
 local ORBIT_DRIFT = 7
 local ORBIT_PITCH = { 5, 75 }
@@ -34,6 +37,10 @@ function EvilCrawler.Devoured(ply)
 	if target:GetClass() == "evil_crawler" or target:GetNW2Entity(EvilCrawler.OWNER_VAR) == ply then return target end
 end
 
+local function Piloting(ply, target)
+	return target:GetClass() == "evil_crawler" and target:GetPilot() == ply
+end
+
 local function Pressure()
 	local ply = LocalPlayer()
 	if not IsValid(ply) then return 0 end
@@ -44,7 +51,8 @@ local function Pressure()
 		return math.Clamp((CurTime() - holder:GetActStart()) / EvilCrawler.StruggleTime(), 0, 1), holder
 	end
 
-	if EvilCrawler.Devoured(ply) then return WATCHING end
+	local target = EvilCrawler.Devoured(ply)
+	if target then return Piloting(ply, target) and PILOTING or WATCHING end
 	return 0
 end
 
@@ -63,9 +71,39 @@ local function Vignette(k)
 	end
 end
 
+local letGoSince
+
+local function LetGoPrompt()
+	local ply = LocalPlayer()
+	if not IsValid(ply) or not cv_prompt:GetBool() or not EvilCrawler.Inside(ply) then
+		letGoSince = nil
+		return
+	end
+	local key = input.LookupBinding("+use") or "e"
+	local code = input.GetKeyCode(key)
+	if code and code > 0 and input.IsButtonDown(code) and not vgui.CursorVisible() then
+		letGoSince = letGoSince or RealTime()
+	else
+		letGoSince = nil
+	end
+	local held = letGoSince and math.Clamp((RealTime() - letGoSince) / EvilCrawler.LET_GO_TIME, 0, 1) or 0
+	local kw, kh = EXIT_SIZE[1], EXIT_SIZE[2]
+	local cx, cy = ScrW() * 0.5, ScrH() * EXIT_Y
+	local x, y = cx - kw * 0.5, cy - kh * 0.5
+	draw.RoundedBox(6, x, y, kw, kh, KEY_BG)
+	surface.SetDrawColor(BAR_BG)
+	surface.DrawRect(x + 2, y + 2, kw - 4, kh - 4)
+	surface.SetDrawColor(BONE.r, BONE.g, BONE.b, 90)
+	surface.DrawRect(x + 2, y + 2, (kw - 4) * held, kh - 4)
+	surface.SetDrawColor(BONE)
+	surface.DrawOutlinedRect(x, y, kw, kh, 2)
+	draw.SimpleText(key:upper(), "EvilCrawlerKey", cx, cy, BONE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+end
+
 hook.Add("HUDPaint", "EvilCrawlerStruggle", function()
 	local k, holder = Pressure()
 	if k > 0 then Vignette(k) end
+	LetGoPrompt()
 	if not holder then
 		shownFree = 0
 		return
@@ -141,7 +179,8 @@ hook.Add("CalcView", "EvilCrawlerDevoured", function(ply, _, angles, fov)
 	focus = focus and LerpVector(math.min(1, dt * FOCUS_RATE), focus, want) or want
 	orbitUp = orbitUp and LerpVector(math.min(1, dt * UP_RATE), orbitUp, wantUp):GetNormalized() or wantUp
 
-	local yaw = math.rad(angles.y + 180 + RealTime() * ORBIT_DRIFT)
+	local drift = crawler and Piloting(ply, target) and 0 or ORBIT_DRIFT
+	local yaw = math.rad(angles.y + 180 + RealTime() * drift)
 	local around = Vector(math.cos(yaw), math.sin(yaw), 0)
 	around = around - orbitUp * around:Dot(orbitUp)
 	if around:LengthSqr() < 1e-4 then around = orbitUp:Angle():Right() end
