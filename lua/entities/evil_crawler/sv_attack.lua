@@ -102,7 +102,8 @@ local MAX_VOICES = 12
 local MURMUR_GAP = { 25, 60 }
 local MUFFLED = 15
 local PILOT_STRIKE_GAP = 0.25
-local PILOT_AIM = 0.3
+local PILOT_AIM = 0.85
+local JAB_RADIUS = 40
 local INSIDE_VAR = EvilCrawler.INSIDE_VAR
 local spat = {}
 
@@ -243,6 +244,7 @@ function ENT:Release()
 	self.BiteStage = nil
 	self.BitePart = nil
 	self.Devoured = nil
+	self.Jabbing = nil
 	self.SnaggedSince = nil
 end
 
@@ -877,18 +879,74 @@ local function Takeable(ply)
 		and ply:LookupBone("ValveBiped.Bip01_Spine2") ~= nil
 end
 
+function ENT:Catchable(ent, pilot)
+	if ent == pilot or ent == self then return false end
+	if ent:IsPlayer() then return Takeable(ent) end
+	return self:IsEdible(ent)
+end
+
 function ENT:PilotStrike(pilot, aim)
 	local now = CurTime()
-	if now < (self.NextPilotStrike or 0) then return end
+	if now < (self.NextPilotStrike or 0) or self:GetAct() ~= ACT_NONE then return end
 	self.NextPilotStrike = now + PILOT_STRIKE_GAP
-	local pos, best, bestDot = self:GetPos(), nil, PILOT_AIM
-	for _, ent in ipairs(ents.FindInSphere(pos, ATTACK_REACH * self.Scale)) do
-		if ent ~= pilot and ent ~= self and (ent:IsPlayer() and Takeable(ent) or not ent:IsPlayer() and self:IsEdible(ent)) then
+	local pos, up = self:GetPos(), self.BodyUp
+	local reach = ATTACK_REACH * self.Scale
+	local best, bestDot = nil, PILOT_AIM
+	for _, ent in ipairs(ents.FindInSphere(pos, reach)) do
+		if self:Catchable(ent, pilot) then
 			local d = (Proxy(ent):WorldSpaceCenter() - pos):GetNormalized():Dot(aim)
 			if d > bestDot and self:Clear(pos, ent) then best, bestDot = ent, d end
 		end
 	end
-	if best then self:StartStrike(best) end
+	if best then
+		self:StartStrike(best)
+		return
+	end
+
+	local dir = aim - up * aim:Dot(up)
+	if dir:LengthSqr() < 0.01 then dir = self.Facing end
+	dir:Normalize()
+	self.Jabbing = self:Trace(pos, pos + dir * reach - up * (self.BodyHeight * 0.4)).HitPos
+	self.Lunged = false
+	self:SetStabAt(self.Jabbing)
+	self:SetPrey(NULL)
+	self:SetVictim(NULL)
+	self:SetAct(ACT_STRIKE)
+	self:SetActStart(now)
+end
+
+function ENT:JabHit(from, to)
+	local pilot = self:Piloted()
+	local r = JAB_RADIUS * self.Scale
+	local best, bestDist
+	for _, ent in ipairs(ents.FindInSphere((from + to) * 0.5, from:Distance(to) * 0.5 + r * 2)) do
+		local corpse = carrion[ent] and EvilCrawler.Setting("eat_corpses") > 0 and self:IsCarrion(ent)
+		if corpse or self:Catchable(ent, pilot) then
+			local d = util.DistanceToLine(from, to, corpse and self:Heart(ent) or Proxy(ent):WorldSpaceCenter())
+			if d < r and (not best or d < bestDist) and self:Clear(from, ent) then best, bestDist = ent, d end
+		end
+	end
+	return best
+end
+
+function ENT:Jabbed(now)
+	local t = now - self:GetActStart()
+	if not self.Lunged and t >= EvilCrawler.STRIKE_WINDUP then
+		self.Lunged = true
+		sound.Play(LUNGE_SOUND, self:GetPos(), 62, math.random(70, 90), 0.4)
+	end
+	if t < IMPACT_TIME then return end
+	local hit = self:JabHit(self:GetPos(), self.Jabbing)
+	self:Release()
+	if not hit then return end
+	if carrion[hit] then
+		self:Scavenge(hit)
+		return
+	end
+	hit.EvilCrawlerVictim = self
+	self:SetVictim(hit)
+	self:SetAct(ACT_STRIKE)
+	if hit:IsPlayer() then self:Seize(hit, now) else self:Strike(hit) end
 end
 
 hook.Add("StartCommand", "EvilCrawlerPilot", function(ply, cmd)
@@ -989,6 +1047,10 @@ function ENT:PonderAct(now)
 		self.Goal = nil
 		return
 	end
+	if self.Jabbing then
+		self.Goal = nil
+		return
+	end
 	if act ~= ACT_STUN and not IsValid(self:GetVictim()) then
 		self:Release()
 		return
@@ -1038,6 +1100,10 @@ function ENT:UpdateAct(now)
 	if act == EvilCrawler.ACT_OUT and now >= self.OutUntil then self:Wake(now) end
 	if act == ACT_NONE or act == ACT_STUN or not self:Awake() then return end
 
+	if self.Jabbing then
+		self:Jabbed(now)
+		return
+	end
 	local victim = self:GetVictim()
 	if not IsValid(victim) then
 		self:Release()

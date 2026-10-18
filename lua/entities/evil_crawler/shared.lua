@@ -158,6 +158,7 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Int", 3, "Gorged")
 	self:NetworkVar("Int", 4, "Taken")
 	self:NetworkVar("Entity", 2, "Pilot")
+	self:NetworkVar("Vector", 0, "StabAt")
 end
 
 function ENT:Inside()

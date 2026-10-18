@@ -231,11 +231,11 @@ local function Chest(ent)
 	return Bone(ent, "ValveBiped.Bip01_Spine2") or ent:WorldSpaceCenter()
 end
 
-function ENT:AssignRoles(morph, act, victim, pos, fwd, left)
+function ENT:AssignRoles(morph, act, victim, pos, fwd, left, jab)
 	local roles = {}
-	if act == ACT_NONE or not IsValid(victim) then return roles end
+	if act == ACT_NONE or not (IsValid(victim) or jab) then return roles end
 
-	local d = victim:WorldSpaceCenter() - pos
+	local d = (jab or victim:WorldSpaceCenter()) - pos
 	local yaw = math.deg(math.atan2(d:Dot(left), d:Dot(fwd)))
 	local order = { unpack(morph.legs) }
 	table.sort(order, function(a, b)
@@ -458,6 +458,7 @@ function ENT:UpdateLimbs()
 	local act, victim, actStart = self:GetAct(), self:GetVictim(), self:GetActStart()
 	local fake = IsValid(victim) and victim:IsPlayer() and victim:GetNWEntity("FakeRagdoll")
 	if IsValid(fake) then victim = fake end
+	local jab = act == ACT_STRIKE and not IsValid(victim) and self:GetStabAt()
 	local limp = act == ACT_OUT or act == ACT_DEAD
 
 	if act == ACT_NONE then
@@ -469,7 +470,7 @@ function ENT:UpdateLimbs()
 
 	if self.RolesAct ~= act or self.RolesStart ~= actStart or self.RolesVictim ~= victim then
 		self.RolesAct, self.RolesStart, self.RolesVictim = act, actStart, victim
-		self.Roles = self:AssignRoles(morph, act, victim, pos, fwd, left)
+		self.Roles = self:AssignRoles(morph, act, victim, pos, fwd, left, jab)
 	end
 	local function toWorld(v) return pos + fwd * v.x + left * v.y + up * v.z end
 
@@ -542,7 +543,7 @@ function ENT:UpdateLimbs()
 		st.target, st.grounded = target, grounded
 		st.foot = st.foot or target
 
-		if role and (not IsValid(victim) or (act == ACT_FEED and role.index > 1 and now - actStart < PULL_TIME)) then
+		if role and (not (IsValid(victim) or jab) or (act == ACT_FEED and role.index > 1 and now - actStart < PULL_TIME)) then
 			role = nil
 		end
 		if role and st.stepping then
@@ -625,7 +626,7 @@ function ENT:UpdateLimbs()
 		if role then
 			if act == ACT_STRIKE then
 				local t = now - actStart
-				local chest = Chest(victim)
+				local chest = jab or Chest(victim)
 				local away = root - chest
 				away = (away - up * away:Dot(up)):GetNormalized()
 				local cocked = root + up * (limb.length * 0.55) + away * (limb.length * 0.2)

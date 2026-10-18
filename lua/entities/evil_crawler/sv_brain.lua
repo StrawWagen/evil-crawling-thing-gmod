@@ -867,7 +867,7 @@ function ENT:Steer()
 	end
 
 	local pilot = self:Piloted()
-	if pilot and self:GetAct() == EvilCrawler.ACT_NONE then return self:Drive(pilot, now) end
+	if pilot and (self:GetAct() == EvilCrawler.ACT_NONE or self.Jabbing) then return self:Drive(pilot, now) end
 
 	local burst = EvilCrawler.Setting("burst") * self:Winded()
 	if self.DetourUntil and now < self.DetourUntil then
