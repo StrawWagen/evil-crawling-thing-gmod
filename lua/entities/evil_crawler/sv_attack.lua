@@ -250,6 +250,7 @@ end
 
 local function Rotting(rag)
 	if not IsValid(rag) or Victim.bodies[rag] or rag.EvilCrawlerVictim or EvilCrawler.Faker(rag) or not CurrentPart(rag) then return false end
+	if EvilCrawler.Shared(rag) then return true end
 	local chest = Chest(rag)
 	return IsValid(chest) and chest:IsMotionEnabled()
 end
@@ -290,7 +291,7 @@ function ENT:Scavenge(corpse)
 	self:SetVictim(corpse)
 	self.CarryDir = (center - self:GetPos()):GetNormalized()
 	self.Eaten = 0
-	self:StartDrag(CurTime())
+	if EvilCrawler.Shared(corpse) then self:FeedHere(CurTime()) else self:StartDrag(CurTime()) end
 	return true
 end
 
@@ -530,6 +531,17 @@ function ENT:Overpower(ply, now)
 	self:StartDrag(now)
 end
 
+function ENT:FeedHere(now)
+	self:GetVictim().EvilCrawlerVictim = self
+	self.Lair = self:GetPos()
+	self:SetAct(ACT_FEED)
+	self:SetActStart(now)
+	self:SetState("feed")
+	self.BiteStage = nil
+	self.BitePart = nil
+	self.FeedUntil = now + PULL_TIME + FEED_CAP
+end
+
 function ENT:StartDrag(now)
 	self:GetVictim().EvilCrawlerVictim = self
 	self:SetAct(ACT_DRAG)
@@ -739,6 +751,7 @@ function ENT:Consume(corpse, part, now)
 		self.FeedUntil = math.min(self.FeedUntil, now + FINISH_TIME)
 	end
 	Victim.Maimed(corpse, PARTS[part].grip[1], self)
+	hook.Run("EvilCrawlerAte", self, corpse, part)
 	self:Spit(BONES[part])
 end
 
@@ -842,11 +855,12 @@ function ENT:PonderAct(now)
 	elseif act == ACT_FEED then
 		self.Goal = nil
 		local victim = self:GetVictim()
-		if not self.Devoured and self:Disturbed() then
+		local shared = EvilCrawler.Shared(victim)
+		if not self.Devoured and not shared and self:Disturbed() then
 			self:StartDrag(now)
 		elseif now > self.FeedUntil then
 			if Victim.Alive(victim) then Victim.Kill(victim, self) end
-			if self.Devoured then victim:Remove() end
+			if self.Devoured and not shared then victim:Remove() end
 			self:Sate(now)
 			self:Release()
 		end

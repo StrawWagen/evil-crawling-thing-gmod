@@ -70,14 +70,23 @@ for _, part in ipairs(EvilCrawler.PARTS) do
 end
 EvilCrawler.TORSO_BITES = { B .. "Spine2", B .. "Spine1", B .. "Spine", B .. "Pelvis" }
 EvilCrawler.EATEN_VAR = "EvilCrawlerEaten"
+EvilCrawler.KEPT_VAR = "EvilCrawlerKept"
 
 function EvilCrawler.Eaten(corpse, part)
 	return bit.band(corpse:GetNW2Int(EvilCrawler.EATEN_VAR, 0), bit.lshift(1, part - 1)) ~= 0
 end
 
+function EvilCrawler.Kept(corpse, part)
+	return bit.band(corpse:GetNW2Int(EvilCrawler.KEPT_VAR, 0), bit.lshift(1, part - 1)) ~= 0
+end
+
+function EvilCrawler.Shared(corpse)
+	return corpse:GetNW2Int(EvilCrawler.KEPT_VAR, 0) ~= 0
+end
+
 function EvilCrawler.CurrentPart(corpse)
 	for part, p in ipairs(EvilCrawler.PARTS) do
-		if not EvilCrawler.Eaten(corpse, part) then
+		if not EvilCrawler.Eaten(corpse, part) and not EvilCrawler.Kept(corpse, part) then
 			return corpse:LookupBone(p.grip[1]) and part or nil
 		end
 	end
