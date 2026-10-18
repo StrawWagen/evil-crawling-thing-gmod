@@ -144,6 +144,12 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Float", 2, "Squeeze")
 	self:NetworkVar("Entity", 1, "Victim")
 	self:NetworkVar("Bool", 0, "Swimming")
+	self:NetworkVar("Int", 3, "Gorged")
+end
+
+function ENT:Size()
+	local grow = 1 + EvilCrawler.Setting("grow") * self:GetGorged() / #EvilCrawler.PARTS
+	return math.min(grow, EvilCrawler.Setting("grow_max"))
 end
 
 function ENT:Trace(from, to, mask)

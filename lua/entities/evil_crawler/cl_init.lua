@@ -43,6 +43,12 @@ local DEATH_CURL = 1.5
 local CORPSE_TIME, ROT_TIME = EvilCrawler.CORPSE_TIME, EvilCrawler.ROT_TIME
 local COIL_POINTS = 26
 local REACH_POINTS = 8
+local SWELL_RATE = 0.1
+local MAX_SACS = 40
+local SAC_SPREAD = 0.07
+local SAC_FILL = 3
+local BOUNDS = 400
+local NONE = {}
 
 local FOOT_SOUNDS = {
 	"npc/antlion/foot1.wav",
@@ -71,7 +77,7 @@ local SolveChain = EvilCrawler.SolveChain
 local CatmullRom = Flesh.CatmullRom
 
 function ENT:Initialize()
-	self:SetRenderBounds(Vector(-400, -400, -400), Vector(400, 400, 400))
+	self:SetRenderBounds(Vector(-BOUNDS, -BOUNDS, -BOUNDS), Vector(BOUNDS, BOUNDS, BOUNDS))
 	self:DestroyShadow()
 end
 
@@ -122,10 +128,43 @@ function ENT:Creature()
 	if self.GrownFrom ~= seed then
 		self.GrownFrom = seed
 		self.Morph = EvilCrawler.Grow(seed)
-		self.BodyHeight = self.Morph.height
 		self.LimbState = nil
+		self.Sacs = nil
 	end
-	return self.Morph
+	local morph = self.Morph
+
+	local now = UnPredictedCurTime()
+	local size = self:Size()
+	self.Swelling = math.Approach(self.Swelling or size, size, (now - (self.SwelledAt or now)) * SWELL_RATE)
+	self.SwelledAt = now
+	if morph.size ~= self.Swelling then
+		EvilCrawler.Swell(morph, self.Swelling)
+		local b = BOUNDS * self.Swelling
+		self:SetRenderBounds(Vector(-b, -b, -b), Vector(b, b, b))
+	end
+	self.BodyHeight = morph.height
+	self:Gorge(morph, EvilCrawler.Setting("grow") > 0 and math.min(self:GetGorged(), MAX_SACS) or 0, now)
+	return morph
+end
+
+function ENT:Gorge(morph, meals, now)
+	local had = self.Sacs or 0
+	if meals == had then return end
+	if meals < had then
+		for _, leg in ipairs(morph.legs) do leg.sacs = nil end
+		had = 0
+	end
+	local born = self.Sacs and now or 0
+	local rand = EvilCrawler.Rng(self:GetSeed() * 3 + 1)
+	for k = 1, meals do
+		local leg = morph.legs[math.floor(rand(1, #morph.legs + 1))]
+		local at, amp, phase = rand(0.06, 0.5), rand(0.6, 1.4), rand(0, 10)
+		if k > had then
+			leg.sacs = leg.sacs or {}
+			leg.sacs[#leg.sacs + 1] = { at = at, amp = amp, phase = phase, born = born }
+		end
+	end
+	self.Sacs = meals
 end
 
 local function Wobble(t, phase, freq)
@@ -382,7 +421,7 @@ function ENT:UpdateLimbs()
 	local low = 1 - 0.65 * skitter
 	local loud = math.Clamp(speed / SKITTER[2], 0, 1)
 	local shake = 0.04 + 0.04 * agit
-	local squeezed = math.max(MIN_SHRINK, 1 - self:GetSqueeze())
+	local squeezed = math.max(MIN_SHRINK / morph.size, 1 - self:GetSqueeze())
 
 	local swimming = self:GetSwimming() and not limp
 	local axis, lift, side, stroke
@@ -479,7 +518,7 @@ function ENT:UpdateLimbs()
 				if grounded and now >= (self.NextFootSound or 0) then
 					self.NextFootSound = now + FOOT_SOUND_GAP
 					local snd = FOOT_SOUNDS[math.random(#FOOT_SOUNDS)]
-					sound.Play(snd, target, 65 + 12 * loud, limb.pitch + math.random(-10, 10) + 15 * loud, 0.35 + 0.4 * loud)
+					sound.Play(snd, target, 65 + 12 * loud, limb.pitch / math.sqrt(morph.size) + math.random(-10, 10) + 15 * loud, 0.35 + 0.4 * loud)
 				end
 			end
 		elseif not role and st.raise == 0 then
@@ -590,6 +629,11 @@ local function LimbRadius(f, limb)
 		local d = (f - (1 - (drawNow - born) / LUMP_TIME)) / 0.07
 		r = r + limb.width * 0.9 * math.exp(-d * d)
 	end
+	for _, sac in ipairs(limb.sacs or NONE) do
+		local d = (f - sac.at) / SAC_SPREAD
+		local fill = Smooth(math.min(1, (drawNow - sac.born) / SAC_FILL))
+		r = r + limb.width * sac.amp * fill * (1 + 0.08 * math.sin(drawNow * 1.3 + sac.phase)) * math.exp(-d * d)
+	end
 	return r * drawRot
 end
 
@@ -633,7 +677,7 @@ function ENT:Draw()
 			for i = 1, COIL_POINTS do pts[i] = LerpVector(b, pts[i], st.coil[i]) end
 			Flesh.Tube(pts, sides, 1, LimbRadius, LimbColor, limb)
 		else
-			Flesh.Tube(st.points, sides, st.lumps[1] and sub * 2 or sub, LimbRadius, LimbColor, limb)
+			Flesh.Tube(st.points, sides, (st.lumps[1] or limb.sacs) and sub * 2 or sub, LimbRadius, LimbColor, limb)
 		end
 	end
 

@@ -9,6 +9,8 @@ local function Rng(seed)
 	end
 end
 
+EvilCrawler.Rng = Rng
+
 local function Int(rand, a, b)
 	return math.floor(rand(a, b + 1))
 end
@@ -62,8 +64,15 @@ function EvilCrawler.Grow(seed)
 			freq = rand(0.6, 2.4),
 			shade = rand(0.75, 1.2),
 		}
+		local leg = creature.legs[i]
+		leg.base = {
+			length = leg.length, lengths = { unpack(leg.lengths) }, root = leg.root, width = leg.width,
+			stepDistance = leg.stepDistance, stepHeight = leg.stepHeight,
+		}
 	end
 	creature.height = reach / count * 0.36
+	creature.baseHeight = creature.height
+	creature.size = 1
 
 	local gap = 360 / count * 1.6
 	for _, leg in ipairs(creature.legs) do
@@ -76,4 +85,19 @@ function EvilCrawler.Grow(seed)
 	end
 
 	return creature
+end
+
+function EvilCrawler.Swell(creature, size)
+	creature.size = size
+	local girth = size ^ 1.5
+	for _, leg in ipairs(creature.legs) do
+		local base = leg.base
+		leg.length = base.length * size
+		for i, l in ipairs(base.lengths) do leg.lengths[i] = l * size end
+		leg.root = base.root * size
+		leg.width = base.width * girth
+		leg.stepDistance = base.stepDistance * size
+		leg.stepHeight = base.stepHeight * size
+	end
+	creature.height = creature.baseHeight * size
 end

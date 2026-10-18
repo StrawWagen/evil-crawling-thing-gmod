@@ -123,7 +123,7 @@ function ENT:WouldTake(ply)
 end
 
 function ENT:CanAttack(ent)
-	if Proxy(ent):WorldSpaceCenter():Distance(self:GetPos()) >= ATTACK_REACH then return false end
+	if Proxy(ent):WorldSpaceCenter():Distance(self:GetPos()) >= ATTACK_REACH * self.Scale then return false end
 	if not self:Clear(self:GetPos(), ent) then return false end
 	if ent:IsPlayer() then return self:WouldTake(ent) end
 	return self:IsHungry() and self:IsEdible(ent)
@@ -281,7 +281,7 @@ end
 
 function ENT:Scavenge(corpse)
 	local center = self:Heart(corpse)
-	if center:Distance(self:GetPos()) >= ATTACK_REACH or not self:Clear(self:GetPos(), corpse, center) then return false end
+	if center:Distance(self:GetPos()) >= ATTACK_REACH * self.Scale or not self:Clear(self:GetPos(), corpse, center) then return false end
 	for i = 0, corpse:GetPhysicsObjectCount() - 1 do
 		local phys = corpse:GetPhysicsObjectNum(i)
 		if IsValid(phys) then phys:Wake() end
@@ -729,6 +729,7 @@ end
 function ENT:Consume(corpse, part, now)
 	local p = self:GetPos()
 	Strip(corpse, part)
+	self:SetGorged(self:GetGorged() + 1)
 	corpse:SetNW2Int(EvilCrawler.EATEN_VAR, bit.bor(corpse:GetNW2Int(EvilCrawler.EATEN_VAR, 0), bit.lshift(1, part - 1)))
 
 	local fx = EffectData()
@@ -890,7 +891,7 @@ function ENT:UpdateAct(now)
 		end
 		if t >= IMPACT_TIME then
 			local center = Proxy(victim):WorldSpaceCenter()
-			if center:Distance(self:GetPos()) >= MISS_REACH or not self:Clear(self:GetPos(), victim) then
+			if center:Distance(self:GetPos()) >= MISS_REACH * self.Scale or not self:Clear(self:GetPos(), victim) then
 				self:Release()
 			elseif victim:IsPlayer() then
 				self:Seize(victim, now)

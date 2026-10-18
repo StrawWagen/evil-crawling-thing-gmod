@@ -88,8 +88,8 @@ function ENT:Initialize()
 
 	if self:GetSeed() == 0 then self:SetSeed(math.random(1, 2 ^ 30)) end
 	local morph = EvilCrawler.Grow(self:GetSeed())
-	self.BodyHeight = morph.height
-	self:SetCollisionBounds(Vector(-12, -12, -12), Vector(12, 12, 12))
+	self.BaseHeight = morph.height
+	self:Resize()
 	self:SetSaveValue("m_takedamage", 2)
 
 	local up = self.SpawnUp or Vector(0, 0, 1)
@@ -105,8 +105,17 @@ function ENT:Initialize()
 	self:Expose()
 end
 
+function ENT:Resize()
+	local size = self:Size()
+	if size == self.Scale then return end
+	self.Scale = size
+	self.BodyHeight = self.BaseHeight * size
+	self:SetCollisionBounds(Vector(-12, -12, -12) * size, Vector(12, 12, 12) * size)
+end
+
 function ENT:Think()
 	self.Off = self:Switched()
+	self:Resize()
 	self:Crawl(FrameTime())
 	self:UpdateAct(CurTime())
 	self:NextThink(CurTime())
@@ -265,7 +274,7 @@ function ENT:Crawl(dt)
 		self.Room = Lerp(1 - math.exp(-dt * (room < self.Room and DUCK_RATE or RISE_RATE)), self.Room, room)
 		local squeeze = math.Round(1 - self.Room / h, 2)
 		if squeeze ~= self:GetSqueeze() then self:SetSqueeze(squeeze) end
-		wish = wish * math.max(SQUEEZED, self.Room / h)
+		wish = wish * math.max(SQUEEZED, math.min(1, self.Room / self.BaseHeight))
 
 		self.Vel = LerpVector(1 - math.exp(-dt * accel), self.Vel, wish)
 		self.Vel = self.Vel - up * self.Vel:Dot(up)

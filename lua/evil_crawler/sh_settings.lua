@@ -47,6 +47,11 @@ EvilCrawler.SETTINGS = {
 		help = "Enough hits from players while it's knocked out kills it" },
 	{ name = "escape_tighten", default = 0.5, min = 0, max = 3, decimals = 2, label = "Coil tightening",
 		help = "How much harder the coil is to fight out of for each time that player got away lately" },
+	{ name = "grow", default = 0, min = 0, max = 3, decimals = 2, label = "Growth",
+		help = "How much bigger a crawler gets for each body it eats, legs swelling with what it's swallowed. "
+			.. "It keeps it until it dies. At 0 it never grows" },
+	{ name = "grow_max", default = 5, min = 1, max = 10, decimals = 1, label = "Biggest size",
+		help = "Most a crawler can grow, times its starting size" },
 	{ name = "burst", default = 1100, min = 100, max = 3000, decimals = 0, label = "Dart speed",
 		help = "Top speed of a dart" },
 	{ name = "sight_range", default = 4000, min = 0, max = 10000, decimals = 0, label = "Sight range",
