@@ -181,7 +181,7 @@ end
 
 function ENT:Visibility(ent, pos, now)
 	if not Perceivable(ent) or (ent:IsPlayer() and not self:Wants(ent)) then return 0 end
-	local range = EvilCrawler.Setting("sight_range")
+	local range = EvilCrawler.Setting("sight_range") * self:Wits()
 	local center = Proxy(ent):WorldSpaceCenter()
 	local d = center:Distance(pos)
 	if d >= range then return 0 end
@@ -376,6 +376,7 @@ end
 function ENT:Ponder()
 	local now = CurTime()
 	local pos = self:GetPos()
+	self:Murmur(now)
 
 	if self:GetAct() ~= EvilCrawler.ACT_NONE then
 		self:PonderAct(now)
@@ -586,7 +587,7 @@ end
 function ENT:Listen(now)
 	local since = self.HeardAt or now
 	self.HeardAt = now
-	local mult = EvilCrawler.Setting("hearing")
+	local mult = EvilCrawler.Setting("hearing") * self:Wits()
 	if mult <= 0 then return end
 	local pos, best, bestLoud = self:GetPos()
 	for _, n in ipairs(Hearing.noises) do
@@ -805,7 +806,7 @@ function ENT:Overhead(prey, now)
 		return
 	end
 	self.OverSince = self.OverSince or now
-	if now - self.OverSince > EvilCrawler.Setting("reroute_time") then
+	if now - self.OverSince > EvilCrawler.Setting("reroute_time") / self:Wits() then
 		self.OverSince = nil
 		self:Unstick(prey:GetPos(), now, 0.4)
 	end
@@ -1169,7 +1170,7 @@ end
 function ENT:Quarry()
 	if Burnable(self.Grudge) then return self.Grudge end
 	local pos = self:GetPos()
-	local best, bestDist = nil, EvilCrawler.Setting("sight_range")
+	local best, bestDist = nil, EvilCrawler.Setting("sight_range") * self:Wits()
 	for _, ent in ipairs(ents.FindInSphere(pos, bestDist)) do
 		if Burnable(ent) then
 			local d = Proxy(ent):WorldSpaceCenter():Distance(pos)

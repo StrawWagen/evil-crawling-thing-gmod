@@ -97,6 +97,9 @@ local SPIT_DELAY = { 1, 2 }
 local SPIT_SPEED = { 120, 280 }
 local SPIT_SOUNDS = { "npc/barnacle/barnacle_bark1.wav", "npc/barnacle/barnacle_bark2.wav" }
 local MAX_BONES = 60
+local MAX_VOICES = 12
+local MURMUR_GAP = { 25, 60 }
+local MUFFLED = 15
 local spat = {}
 
 function ENT:IsEdible(ent)
@@ -338,7 +341,7 @@ end)
 
 function ENT:Sate(now)
 	self.FedAt = now
-	self.SatedUntil = now + EvilCrawler.Setting("sated_time") / (1 + ANGER_HUNGER * (self.Anger or 0))
+	self.SatedUntil = now + EvilCrawler.Setting("sated_time") / (1 + ANGER_HUNGER * (self.Anger or 0)) / self:Wits()
 end
 
 function ENT:Strike(npc)
@@ -364,6 +367,14 @@ end
 
 function ENT:Skewer(npc, now)
 	local center = npc:WorldSpaceCenter()
+	if EvilCrawler.Integrating() then
+		self:SetTaken(self:GetTaken() + #PARTS)
+		sound.Play(GULP_SOUNDS[math.random(#GULP_SOUNDS)], center, 75, math.random(45, 55))
+		hook.Run("OnNPCKilled", npc, self, self)
+		npc:Remove()
+		self:Sate(now)
+		return
+	end
 	local fx = EffectData()
 	fx:SetOrigin(center)
 	fx:SetNormal(self.BodyUp)
@@ -422,7 +433,7 @@ end
 
 function ENT:GripOn(ply)
 	local recent = CurTime() - (ply.EvilCrawlerEscapedAt or -math.huge) < ESCAPE_MEMORY
-	return SLIP * (1 + EvilCrawler.Setting("escape_tighten") * (recent and ply.EvilCrawlerEscapes or 0))
+	return SLIP * self:Wits() * (1 + EvilCrawler.Setting("escape_tighten") * (recent and ply.EvilCrawlerEscapes or 0))
 end
 
 function ENT:Grapple(ply, now)
@@ -716,6 +727,28 @@ function ENT:Rip(phys, corpse)
 	end)
 end
 
+function ENT:Knead(phys)
+	phys:ApplyForceCenter(-self.BodyUp * phys:GetMass() * STAB_FORCE * 0.4)
+	sound.Play(GRAB_SOUNDS[math.random(#GRAB_SOUNDS)], phys:GetPos(), 62, math.random(60, 75), 0.5)
+end
+
+function ENT:Suck(phys, corpse)
+	local p = phys:GetPos()
+	phys:ApplyForceCenter((self:GetPos() - p):GetNormalized() * phys:GetMass() * RIP_FORCE * 0.5)
+	sound.Play(GRAB_SOUNDS[math.random(#GRAB_SOUNDS)], p, 66, math.random(45, 60), 0.6)
+
+	Victim.Wound(corpse, self, p)
+	self.Eaten = (self.Eaten or 0) + 1
+	local k = math.min(1, self.Eaten / DRAINED)
+	corpse:SetColor(Color(255 - 165 * k, 255 - 190 * k, 255 - 175 * k))
+
+	timer.Simple(EvilCrawler.LUMP_TIME, function()
+		if IsValid(self) then
+			sound.Play(GULP_SOUNDS[math.random(#GULP_SOUNDS)], self:GetPos(), 60, math.random(55, 70), 0.6)
+		end
+	end)
+end
+
 local function Strip(corpse, part)
 	for _, bone in ipairs(EvilCrawler.PartBones(corpse, part)) do
 		corpse:ManipulateBoneScale(bone, Vector(0, 0, 0))
@@ -731,6 +764,10 @@ function ENT:Consume(corpse, part, now)
 	local p = self:GetPos()
 	Strip(corpse, part)
 	self:SetGorged(self:GetGorged() + 1)
+	if EvilCrawler.Integrating() then
+		self:TakeIn(corpse, part, now)
+		return
+	end
 	corpse:SetNW2Int(EvilCrawler.EATEN_VAR, bit.bor(corpse:GetNW2Int(EvilCrawler.EATEN_VAR, 0), bit.lshift(1, part - 1)))
 
 	local fx = EffectData()
@@ -748,13 +785,49 @@ function ENT:Consume(corpse, part, now)
 		end
 	end)
 
+	self:Swallowed(corpse, part, now)
+	self:Spit(BONES[part])
+end
+
+function ENT:Swallowed(corpse, part, now)
 	if not CurrentPart(corpse) then
 		self.Devoured = true
 		self.FeedUntil = math.min(self.FeedUntil, now + FINISH_TIME)
 	end
 	Victim.Maimed(corpse, PARTS[part].grip[1], self)
 	hook.Run("EvilCrawlerAte", self, corpse, part)
-	self:Spit(BONES[part])
+end
+
+function ENT:TakeIn(corpse, part, now)
+	self:SetTaken(self:GetTaken() + 1)
+	corpse:SetNW2Bool(EvilCrawler.WHOLE_VAR, true)
+	corpse:SetNW2Int(EvilCrawler.EATEN_VAR, bit.bor(corpse:GetNW2Int(EvilCrawler.EATEN_VAR, 0), bit.lshift(1, part - 1)))
+	sound.Play(GULP_SOUNDS[math.random(#GULP_SOUNDS)], self:GetPos(), 75, math.random(45, 55))
+	timer.Simple(0.7, function()
+		if IsValid(self) then
+			sound.Play(GULP_SOUNDS[math.random(#GULP_SOUNDS)], self:GetPos(), 65, math.random(40, 50), 0.7)
+		end
+	end)
+
+	local voice = corpse.EvilCrawlerVoice
+	if voice and not corpse.EvilCrawlerInside then
+		corpse.EvilCrawlerInside = true
+		self.Voices = self.Voices or {}
+		table.insert(self.Voices, { lines = voice, pitch = corpse.EvilCrawlerPitch })
+		if #self.Voices > MAX_VOICES then table.remove(self.Voices, 1) end
+	end
+	self:Swallowed(corpse, part, now)
+end
+
+function ENT:Murmur(now)
+	local voices = self.Voices
+	if not voices or not voices[1] or EvilCrawler.Setting("victim_voices") == 0 then return end
+	self.NextMurmur = self.NextMurmur or now + math.Rand(MURMUR_GAP[1], MURMUR_GAP[2])
+	if now < self.NextMurmur or self:GetAct() ~= ACT_NONE then return end
+	self.NextMurmur = now + math.Rand(MURMUR_GAP[1], MURMUR_GAP[2])
+	local v = voices[math.random(#voices)]
+	local lines = IsValid(self:GetPrey()) and v.lines.help or v.lines.die
+	self:EmitSound(lines[math.random(#lines)], 68, (v.pitch or 100) - 8, 0.6, CHAN_VOICE, 0, MUFFLED)
 end
 
 function ENT:Spit(models)
@@ -786,6 +859,7 @@ function ENT:Feed(corpse, now)
 	if t < 0 then return end
 
 	local seed = self:GetSeed()
+	local whole = EvilCrawler.Integrating()
 	self.BiteStage = self.BiteStage or {}
 	self.BitePart = self.BitePart or {}
 	for k = 1, FEEDERS do
@@ -799,13 +873,13 @@ function ENT:Feed(corpse, now)
 			local phys = BitePhys(corpse, BiteBone(seed, k, n, part))
 			if phys then
 				if stage % 3 == 1 then
-					self:Stab(phys)
+					if whole then self:Knead(phys) else self:Stab(phys) end
 					Victim.Pierced(corpse)
 				else
-					self:Rip(phys, corpse)
+					if whole then self:Suck(phys, corpse) else self:Rip(phys, corpse) end
 					if part and part == CurrentPart(corpse) then
 						corpse.EvilCrawlerRips = (corpse.EvilCrawlerRips or 0) + 1
-						if corpse.EvilCrawlerRips >= PARTS[part].rips then
+						if corpse.EvilCrawlerRips >= math.max(2, math.ceil(PARTS[part].rips / self:Wits())) then
 							corpse.EvilCrawlerRips = 0
 							self:Consume(corpse, part, now)
 						end

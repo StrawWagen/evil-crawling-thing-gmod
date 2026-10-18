@@ -54,6 +54,9 @@ EvilCrawler.SETTINGS = {
 		help = "Most a crawler can grow, times its starting size" },
 	{ name = "abdomen", default = 0, min = 0, max = 1, label = "Stomach",
 		help = "Gives crawlers a stomach where the legs meet, with a mouth underneath that it feeds through" },
+	{ name = "integrate", default = 0, min = 0, max = 1, label = "Integration mode",
+		help = "Crawlers take bodies in whole instead of tearing them apart, and keep them. "
+			.. "Everyone it's eaten makes it a bit bigger, sharper and quicker to take the next one" },
 	{ name = "burst", default = 1100, min = 100, max = 3000, decimals = 0, label = "Dart speed",
 		help = "Top speed of a dart" },
 	{ name = "sight_range", default = 4000, min = 0, max = 10000, decimals = 0, label = "Sight range",

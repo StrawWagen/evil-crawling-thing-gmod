@@ -1,7 +1,7 @@
 EvilCrawler = EvilCrawler or {}
 local Flesh = EvilCrawler.Flesh
 local PARTS = EvilCrawler.PARTS
-local EATEN_VAR = EvilCrawler.EATEN_VAR
+local EATEN_VAR, WHOLE_VAR = EvilCrawler.EATEN_VAR, EvilCrawler.WHOLE_VAR
 
 local SCAN_INTERVAL = 0.5
 local DRIP_TIME = 25
@@ -11,6 +11,8 @@ local STRANDS = 5
 local MEAT = Color(70, 6, 9)
 local SINEW = Color(120, 22, 24)
 local MARROW = Color(205, 190, 170)
+local HIDE = Color(44, 34, 40)
+local GRAFT = Color(62, 46, 54)
 
 local remains = {}
 
@@ -90,7 +92,7 @@ timer.Create("EvilCrawlerRemains", SCAN_INTERVAL, 0, function()
 	for rag, r in pairs(remains) do
 		if not IsValid(rag) then
 			remains[rag] = nil
-		elseif not rag:IsDormant() then
+		elseif not rag:IsDormant() and not rag:GetNW2Bool(WHOLE_VAR) then
 			local age = now - r.at
 			for _, stump in ipairs(PARTS[r.part].stumps) do
 				if age < DRIP_TIME and math.random() < 0.8 * (1 - age / DRIP_TIME) then
@@ -116,6 +118,7 @@ local function Solid(c)
 	return function() return c.r, c.g, c.b end
 end
 local MeatColor, SinewColor = Solid(MEAT), Solid(SINEW)
+local GraftColor, HideColor = Solid(GRAFT), Solid(HIDE)
 local function BoneColor(f)
 	local k = math.Clamp(f * 1.6, 0, 1)
 	return Lerp(k, MEAT.r, MARROW.r), Lerp(k, MEAT.g, MARROW.g), Lerp(k, MEAT.b, MARROW.b)
@@ -123,7 +126,7 @@ end
 
 local pts2, pts3 = {}, {}
 
-local function DrawStump(rag, stump, size, shape)
+local function DrawStump(rag, stump, size, shape, whole)
 	local p, pp = StumpAt(rag, stump)
 	if not p or not pp then return end
 
@@ -136,12 +139,14 @@ local function DrawStump(rag, stump, size, shape)
 	Flesh.SampleLight(p)
 
 	pts2[1], pts2[2] = p - d * size * 0.9, p + d * size * 0.35
-	Flesh.Tube(pts2, 7, 2, Cap, MeatColor, size)
+	Flesh.Tube(pts2, 7, 2, Cap, whole and GraftColor or MeatColor, size)
 
 	local bone = shape.bone
-	pts2[1] = p - d * size * 0.3
-	pts2[2] = p + (d + u * bone.x + v * bone.y):GetNormalized() * bone.len
-	Flesh.Tube(pts2, 5, 2, Splinter, BoneColor, size)
+	if not whole then
+		pts2[1] = p - d * size * 0.3
+		pts2[2] = p + (d + u * bone.x + v * bone.y):GetNormalized() * bone.len
+		Flesh.Tube(pts2, 5, 2, Splinter, BoneColor, size)
+	end
 
 	for _, s in ipairs(shape.strands) do
 		local dir = (d + u * s.x + v * s.y):GetNormalized()
@@ -149,7 +154,7 @@ local function DrawStump(rag, stump, size, shape)
 		pts3[1] = p + (u * s.x + v * s.y) * size * 0.5
 		pts3[2] = p + dir * (s.len * 0.5) - vector_up * (s.len * 0.1 * s.droop)
 		pts3[3] = tip
-		Flesh.Tube(pts3, 4, 2, Taper, SinewColor, size * 0.22)
+		Flesh.Tube(pts3, 4, 2, Taper, whole and HideColor or SinewColor, size * 0.22)
 	end
 end
 
@@ -160,7 +165,8 @@ hook.Add("PostDrawOpaqueRenderables", "EvilCrawlerRemains", function(depth, sky)
 	for rag, r in pairs(remains) do
 		if IsValid(rag) and not rag:IsDormant() and rag:GetPos():DistToSqr(eye) < DRAW_DISTANCE * DRAW_DISTANCE then
 			local part = PARTS[r.part]
-			for i, shape in ipairs(r.shapes) do DrawStump(rag, part.stumps[i], part.size, shape) end
+			local whole = rag:GetNW2Bool(WHOLE_VAR)
+			for i, shape in ipairs(r.shapes) do DrawStump(rag, part.stumps[i], part.size, shape, whole) end
 		end
 	end
 end)

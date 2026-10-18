@@ -511,7 +511,7 @@ local function Update(rag, now)
 
 	local dt = FrameTime()
 	if held then
-		rag.Sedation = math.min(1, rag.Sedation + dt / math.max(0.1, EvilCrawler.Setting("sedate_time")))
+		rag.Sedation = math.min(1, rag.Sedation + dt * holder:Wits() / math.max(0.1, EvilCrawler.Setting("sedate_time")))
 	else
 		rag.Sedation = math.max(0, rag.Sedation - dt / WEAR_OFF)
 	end

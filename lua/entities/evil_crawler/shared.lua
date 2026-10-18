@@ -73,6 +73,14 @@ end
 EvilCrawler.TORSO_BITES = { B .. "Spine2", B .. "Spine1", B .. "Spine", B .. "Pelvis" }
 EvilCrawler.EATEN_VAR = "EvilCrawlerEaten"
 EvilCrawler.KEPT_VAR = "EvilCrawlerKept"
+EvilCrawler.WHOLE_VAR = "EvilCrawlerWhole"
+EvilCrawler.TAKEN_GROW = 0.25
+EvilCrawler.TAKEN_WITS = 0.06
+EvilCrawler.TAKEN_MAX = 10
+
+function EvilCrawler.Integrating()
+	return EvilCrawler.Setting("integrate") > 0
+end
 
 function EvilCrawler.Eaten(corpse, part)
 	return bit.band(corpse:GetNW2Int(EvilCrawler.EATEN_VAR, 0), bit.lshift(1, part - 1)) ~= 0
@@ -147,11 +155,20 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Entity", 1, "Victim")
 	self:NetworkVar("Bool", 0, "Swimming")
 	self:NetworkVar("Int", 3, "Gorged")
+	self:NetworkVar("Int", 4, "Taken")
+end
+
+function ENT:Inside()
+	return self:GetTaken() / #EvilCrawler.PARTS
 end
 
 function ENT:Size()
-	local grow = 1 + EvilCrawler.Setting("grow") * self:GetGorged() / #EvilCrawler.PARTS
+	local grow = 1 + EvilCrawler.Setting("grow") * self:GetGorged() / #EvilCrawler.PARTS + EvilCrawler.TAKEN_GROW * self:Inside()
 	return math.min(grow, EvilCrawler.Setting("grow_max"))
+end
+
+function ENT:Wits()
+	return 1 + EvilCrawler.TAKEN_WITS * math.min(self:Inside(), EvilCrawler.TAKEN_MAX)
 end
 
 function ENT:Trace(from, to, mask)
