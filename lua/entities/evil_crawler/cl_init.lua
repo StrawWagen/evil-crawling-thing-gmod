@@ -56,12 +56,10 @@ local GROPE = 1.5
 local SEEK_GAP = 0.15
 local BELLY = EvilCrawler.BELLY
 local GULP_RATE = EvilCrawler.GULP_RATE
-local SHELL_ROWS = 12
-local TEETH = 12
-local HIDE = Color(58, 42, 48)
-local UNDER = Color(84, 58, 60)
-local LIP = Color(105, 38, 44)
-local THROAT = Color(22, 5, 8)
+local STRANDS = 11
+local STRAND_POINTS = 12
+local MOUTH_TIPS = 7
+local MOUTH_THETA = 0.8 * math.pi
 
 local FOOT_SOUNDS = {
 	"npc/antlion/foot1.wav",
@@ -704,42 +702,69 @@ local function LimbColor(f, limb)
 		Lerp(drawHeat, bl, Lerp(t, HOT.b, WHITE_HOT.b))
 end
 
-local belly = {}
-for i = 1, SHELL_ROWS + 4 do belly[i] = {} end
-local tooth = {}
-local bellyPhase
+local bFwd, bLeft, bUp, bCenter, bW, bT
 
-local function BellyBump(i, k, sides)
-	if i > SHELL_ROWS then return 1 end
-	local a = k / sides * math.pi * 2
-	return 1 + 0.06 * math.sin(a * 3 + bellyPhase + i * 0.5) + 0.035 * math.sin(a * 5 - bellyPhase * 2 - i * 0.8)
-		+ 0.025 * math.sin(drawNow * 1.4 + bellyPhase)
+local function Shell(phi, theta, k)
+	local rho = math.sin(theta) * bW * k
+	return bCenter + bFwd * (math.cos(phi) * rho) + bLeft * (math.sin(phi) * rho) + bUp * (math.cos(theta) * bT * k)
 end
 
-local function Heated(row, c, f)
+local function Shaded(r, g, bl, f)
+	if drawHeat <= 0 then return r, g, bl end
 	local t = f ^ 2
-	row.r = Lerp(drawHeat, c.r, Lerp(t, HOT.r, WHITE_HOT.r))
-	row.g = Lerp(drawHeat, c.g, Lerp(t, HOT.g, WHITE_HOT.g))
-	row.b = Lerp(drawHeat, c.b, Lerp(t, HOT.b, WHITE_HOT.b))
+	return Lerp(drawHeat, r, Lerp(t, HOT.r, WHITE_HOT.r)), Lerp(drawHeat, g, Lerp(t, HOT.g, WHITE_HOT.g)),
+		Lerp(drawHeat, bl, Lerp(t, HOT.b, WHITE_HOT.b))
 end
 
-local function ToothRadius(f, w)
-	return w * (1 - f)
+local function StrandRadius(f, s)
+	return s.width * bW * (0.4 + 0.6 * math.sin(math.pi * f) ^ 0.5)
 end
 
-local function ToothColor()
-	return Lerp(drawHeat, BONE.r, WHITE_HOT.r), Lerp(drawHeat, BONE.g, WHITE_HOT.g), Lerp(drawHeat, BONE.b, WHITE_HOT.b)
+local function StrandColor(f, s)
+	local k = s.shade * Lerp((s.depth - 0.6) / 0.4, 0.4, 1)
+	return Shaded(FLESH.r * k, FLESH.g * k, FLESH.b * k, 0.5)
+end
+
+local function TipRadius(f, m)
+	return m.width * bW * (1 - 0.85 * f ^ 1.3)
+end
+
+local function TipColor(f, m)
+	local k = f ^ 3
+	return Shaded(Lerp(k, FLESH.r, BONE.r) * m.shade, Lerp(k, FLESH.g, BONE.g) * m.shade, Lerp(k, FLESH.b, BONE.b) * m.shade, f)
+end
+
+function ENT:Bundle(morph)
+	if morph.bundle then return morph.bundle end
+	local rand = EvilCrawler.Rng(self:GetSeed() * 5 + 2)
+	local strands, tips = {}, {}
+	for i = 1, STRANDS do
+		strands[i] = {
+			phi = rand(0, math.pi * 2), span = rand(1.4, 2.4) * math.pi * (rand() < 0.5 and -1 or 1),
+			lat = rand(0.3, 0.68) * math.pi, amp = rand(0.1, 0.25) * math.pi, waves = rand(1, 2.5), wave = rand(0, math.pi * 2),
+			depth = rand(0.6, 1), width = rand(0.17, 0.25), shade = rand(0.8, 1.15), phase = rand(0, 100), freq = rand(0.4, 1.2),
+			points = {},
+		}
+	end
+	for i = 1, MOUTH_TIPS do
+		tips[i] = {
+			phi = (i - 1) / MOUTH_TIPS * math.pi * 2 + rand(-0.2, 0.2), reach = rand(0.7, 0.9), width = rand(0.09, 0.13),
+			shade = rand(0.8, 1.15), phase = rand(0, 100), freq = rand(0.6, 1.6), points = {},
+		}
+	end
+	morph.bundle = { strands = strands, tips = tips }
+	return morph.bundle
 end
 
 function ENT:DrawBelly(morph, near)
+	local bundle = self:Bundle(morph)
 	local h = self.BodyHeight * drawRot
 	local squeezed = math.max(MIN_SHRINK / morph.size, 1 - self:GetSqueeze())
-	local w, t = h * BELLY.wide * math.sqrt(squeezed), h * BELLY.tall * squeezed
+	bW, bT = h * BELLY.wide * math.sqrt(squeezed), h * BELLY.tall * squeezed
 	local ang = self:GetAngles()
 	ang:RotateAroundAxis(ang:Up(), self.Churn or 0)
-	local fwd, left, up = ang:Forward(), -ang:Right(), ang:Up()
-	local center = self:GetPos() + up * (t * 0.1)
-	bellyPhase = morph.phase
+	bFwd, bLeft, bUp, bCenter = ang:Forward(), -ang:Right(), ang:Up(), self:GetPos()
+	local sides, sub = near and 6 or 4, near and 2 or 1
 
 	local gape = (self.Agitation or 0) * 0.15
 	local since = drawNow - self:GetActStart() - PULL_TIME
@@ -747,41 +772,29 @@ function ENT:DrawBelly(morph, near)
 		gape = 0.45 + 0.55 * math.max(0, math.sin(since * GULP_RATE * math.pi * 2)) ^ 2
 	end
 
-	local theta = math.pi - math.asin(Lerp(gape, 0.16, 0.42))
-	for i = 1, SHELL_ROWS do
-		local f = (i - 1) / (SHELL_ROWS - 1)
-		local a = f * theta
-		local row = belly[i]
-		row.rho, row.z = w * math.sin(a), t * math.cos(a)
-		Heated(row, f < 0.5 and HIDE or UNDER, f)
+	for _, s in ipairs(bundle.strands) do
+		for i = 1, STRAND_POINTS do
+			local u = (i - 1) / (STRAND_POINTS - 1)
+			local phi = s.phi + s.span * u + 0.15 * math.sin(drawNow * s.freq + s.phase + u * 3)
+			local theta = math.Clamp(s.lat + s.amp * math.sin(s.waves * u * math.pi * 2 + s.wave), 0.12 * math.pi, MOUTH_THETA)
+			local tuck = 1 - 0.45 * math.max(0, 1 - math.min(u, 1 - u) / 0.15)
+			s.points[i] = Shell(phi, theta, s.depth * tuck * (1 + 0.04 * math.sin(drawNow * 1.4 + s.phase + u * 6)))
+		end
+		Flesh.Tube(s.points, sides, sub, StrandRadius, StrandColor, s)
 	end
-	local rho, z = w * math.sin(theta), t * math.cos(theta)
-	local lip = belly[SHELL_ROWS + 1]
-	lip.rho, lip.z = rho * 1.08, z - t * 0.06
-	Heated(lip, LIP, 1)
-	local inner = belly[SHELL_ROWS + 2]
-	inner.rho, inner.z = rho * 0.8, z + t * 0.05
-	Heated(inner, LIP, 1)
-	local throat = belly[SHELL_ROWS + 3]
-	throat.rho, throat.z = rho * 0.45, z + t * 0.35
-	Heated(throat, THROAT, 0)
-	local deep = belly[SHELL_ROWS + 4]
-	deep.rho, deep.z = 0, z + t * 0.55
-	Heated(deep, THROAT, 0)
 
-	Flesh.Lathe(center, fwd, left, up, belly, near and 16 or 8, BellyBump)
-	if not near then return end
-
-	local len = w * 0.17
-	for k = 0, TEETH - 1 do
-		local a = k / TEETH * math.pi * 2 + bellyPhase
-		local o = fwd * math.cos(a) + left * math.sin(a)
-		local base = center + o * (rho * 0.92) + up * (z - t * 0.02)
-		local dir = LerpVector(gape, up * 0.35 - o * 0.75, o * 0.15 - up):GetNormalized()
-		tooth[1] = base
-		tooth[2] = base + dir * (len * 0.55) - up * (len * 0.1)
-		tooth[3] = base + dir * len
-		Flesh.Tube(tooth, 4, 2, ToothRadius, ToothColor, len * 0.14)
+	for _, m in ipairs(bundle.tips) do
+		local o = bFwd * math.cos(m.phi) + bLeft * math.sin(m.phi)
+		local base = Shell(m.phi, MOUTH_THETA - 0.06 * math.pi, 0.95)
+		local len = bW * m.reach
+		local dir = LerpVector(gape, -o * 0.85 - bUp * 0.35, o * 0.45 - bUp):GetNormalized()
+		local wob = Wobble(drawNow, m.phase, m.freq) * (len * (0.05 + 0.1 * gape))
+		local pts = m.points
+		pts[1] = base
+		pts[2] = base + dir * (len * 0.35) - bUp * (len * 0.12)
+		pts[3] = base + dir * (len * 0.7) + wob * 0.5
+		pts[4] = base + dir * len + wob
+		Flesh.Tube(pts, sides, sub + 1, TipRadius, TipColor, m)
 	end
 end
 

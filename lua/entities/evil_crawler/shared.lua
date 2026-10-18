@@ -28,7 +28,7 @@ EvilCrawler.BITE_RIP = 0.82
 EvilCrawler.LUMP_TIME = 1.2
 EvilCrawler.STROKE_PUSH = 0.3
 EvilCrawler.GULP_RATE = 1.7
-EvilCrawler.BELLY = { wide = 0.42, tall = 0.34 }
+EvilCrawler.BELLY = { wide = 0.32, tall = 0.26 }
 
 function EvilCrawler.Stroke(seed, t)
 	local x = t / (0.7 + seed % 7 * 0.05) + seed % 11 / 11

@@ -50,44 +50,6 @@ local function Trig(sides)
 	return t
 end
 
-function Flesh.Lathe(center, fwd, left, up, profile, sides, bump)
-	local n = #profile
-	if n < 2 then return end
-	local tr = Trig(sides)
-	for i = 1, n do
-		local p, a, b = profile[i], profile[math.max(i - 1, 1)], profile[math.min(i + 1, n)]
-		local dr, dz = b.rho - a.rho, b.z - a.z
-		local dl = math.sqrt(dr * dr + dz * dz)
-		if dl < 1e-6 then dr, dz, dl = 1, 0, 1 end
-		local nr, nz = -dz / dl, dr / dl
-		for k = 0, sides - 1 do
-			local c, s = tr.c[k], tr.s[k]
-			local ox, oy, oz = fwd.x * c + left.x * s, fwd.y * c + left.y * s, fwd.z * c + left.z * s
-			local rho = p.rho * bump(i, k, sides)
-			local j = (i - 1) * sides + k + 1
-			vx[j] = center.x + ox * rho + up.x * p.z
-			vy[j] = center.y + oy * rho + up.y * p.z
-			vz[j] = center.z + oz * rho + up.z * p.z
-			local l = Bright(ox * nr + up.x * nz, oy * nr + up.y * nz, oz * nr + up.z * nz)
-			vr[j], vg[j], vb[j] = p.r * l, p.g * l, p.b * l
-		end
-	end
-
-	mesh.Begin(MATERIAL_QUADS, (n - 1) * sides)
-	for j = 1, n - 1 do
-		local v0, v1 = j / n, (j + 1) / n
-		for k = 0, sides - 1 do
-			local k2 = (k + 1) % sides
-			local u0, u1 = k / sides, (k + 1) / sides
-			Vert((j - 1) * sides + k + 1, u0, v0)
-			Vert((j - 1) * sides + k2 + 1, u1, v0)
-			Vert(j * sides + k2 + 1, u1, v1)
-			Vert(j * sides + k + 1, u0, v1)
-		end
-	end
-	mesh.End()
-end
-
 function Flesh.CatmullRom(p0, p1, p2, p3, t)
 	local t2 = t * t
 	local t3 = t2 * t
