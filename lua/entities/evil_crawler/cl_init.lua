@@ -44,9 +44,9 @@ local CORPSE_TIME, ROT_TIME = EvilCrawler.CORPSE_TIME, EvilCrawler.ROT_TIME
 local COIL_POINTS = 26
 local REACH_POINTS = 8
 local SWELL_RATE = 0.1
-local MAX_SACS = 40
-local SAC_SPREAD = 0.07
-local SAC_FILL = 3
+local MAX_MEALS = 40
+local MEAL_GAIN = 0.03
+local MEAL_FILL = 3
 local BOUNDS = 400
 local NONE = {}
 local SWEEP = {}
@@ -142,7 +142,7 @@ function ENT:Creature()
 		self.GrownFrom = seed
 		self.Morph = EvilCrawler.Grow(seed)
 		self.LimbState = nil
-		self.Sacs = nil
+		self.Meals = nil
 	end
 	local morph = self.Morph
 
@@ -156,28 +156,20 @@ function ENT:Creature()
 		self:SetRenderBounds(Vector(-b, -b, -b), Vector(b, b, b))
 	end
 	self.BodyHeight = morph.height
-	self:Gorge(morph, EvilCrawler.Setting("grow") > 0 and math.min(self:GetGorged(), MAX_SACS) or 0, now)
+	self:Gorge(morph, (EvilCrawler.Setting("grow") > 0 or EvilCrawler.Integrating()) and math.min(self:GetGorged(), MAX_MEALS) or 0, now)
 	return morph
 end
 
 function ENT:Gorge(morph, meals, now)
-	local had = self.Sacs or 0
+	local had = self.Meals or 0
 	if meals == had then return end
-	if meals < had then
-		for _, leg in ipairs(morph.legs) do leg.sacs = nil end
+	if meals < had or not morph.meals then
+		morph.meals = {}
 		had = 0
 	end
-	local born = self.Sacs and now or 0
-	local rand = EvilCrawler.Rng(self:GetSeed() * 3 + 1)
-	for k = 1, meals do
-		local leg = morph.legs[math.floor(rand(1, #morph.legs + 1))]
-		local at, amp, phase = rand(0.06, 0.5), rand(0.6, 1.4), rand(0, 10)
-		if k > had then
-			leg.sacs = leg.sacs or {}
-			leg.sacs[#leg.sacs + 1] = { at = at, amp = amp, phase = phase, born = born }
-		end
-	end
-	self.Sacs = meals
+	local born = self.Meals and now or 0
+	for k = had + 1, meals do morph.meals[k] = born end
+	self.Meals = meals
 end
 
 local function Wobble(t, phase, freq)
@@ -683,7 +675,7 @@ function ENT:UpdateLimbs()
 	end
 end
 
-local drawing, drawNow, drawHeat, drawRot
+local drawing, drawNow, drawHeat, drawRot, drawFull
 
 local function LimbRadius(f, limb)
 	local r = limb.width * (1 - 0.9 * f ^ 1.3)
@@ -695,10 +687,8 @@ local function LimbRadius(f, limb)
 		local d = (f - (1 - (drawNow - born) / LUMP_TIME)) / 0.07
 		r = r + limb.width * 0.9 * math.exp(-d * d)
 	end
-	for _, sac in ipairs(limb.sacs or NONE) do
-		local d = (f - sac.at) / SAC_SPREAD
-		local fill = Smooth(math.min(1, (drawNow - sac.born) / SAC_FILL))
-		r = r + limb.width * sac.amp * fill * (1 + 0.08 * math.sin(drawNow * 1.3 + sac.phase)) * math.exp(-d * d)
+	if drawFull > 0 then
+		r = r * (1 + drawFull * (1 + 0.08 * math.sin(drawNow * 1.3 + limb.phase)))
 	end
 	return r * drawRot
 end
@@ -839,6 +829,10 @@ function ENT:Draw()
 		drawRot = 1 - Smooth(math.Clamp((drawNow - self:GetActStart() - (CORPSE_TIME - ROT_TIME)) / ROT_TIME, 0, 1))
 		if drawRot <= 0 then return end
 	end
+	drawFull = 0
+	for _, born in ipairs(morph.meals or NONE) do
+		drawFull = drawFull + MEAL_GAIN * Smooth(math.min(1, (drawNow - born) / MEAL_FILL))
+	end
 	Flesh.SampleLight(pos, drawHeat)
 	render.SetMaterial(Flesh.Material)
 	for _, limb in ipairs(morph.legs) do
@@ -851,7 +845,7 @@ function ENT:Draw()
 			for i = 1, COIL_POINTS do pts[i] = LerpVector(b, pts[i], st.coil[i]) end
 			Flesh.Tube(pts, sides, 1, LimbRadius, LimbColor, limb)
 		else
-			Flesh.Tube(st.points, sides, (st.lumps[1] or limb.sacs) and sub * 2 or sub, LimbRadius, LimbColor, limb)
+			Flesh.Tube(st.points, sides, st.lumps[1] and sub * 2 or sub, LimbRadius, LimbColor, limb)
 		end
 	end
 	if EvilCrawler.Setting("abdomen") > 0 then self:DrawBelly(morph, near) end
