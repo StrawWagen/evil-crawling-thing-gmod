@@ -46,6 +46,11 @@ local function Build(panel)
 		end
 		control:SetTooltip(s.help)
 	end
+	local reset = panel:Button("Reset to defaults")
+	reset.DoClick = function()
+		for _, s in ipairs(EvilCrawler.SETTINGS) do Send(s, s.default) end
+	end
+	reset.Think = Admin
 end
 
 hook.Add("PopulateToolMenu", "EvilCrawlerSettings", function()
