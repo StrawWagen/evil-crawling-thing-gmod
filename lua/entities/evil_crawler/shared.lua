@@ -97,8 +97,8 @@ end
 
 function EvilCrawler.CurrentPart(corpse)
 	for part, p in ipairs(EvilCrawler.PARTS) do
-		if not EvilCrawler.Eaten(corpse, part) and not EvilCrawler.Kept(corpse, part) then
-			return corpse:LookupBone(p.grip[1]) and part or nil
+		if not EvilCrawler.Eaten(corpse, part) and not EvilCrawler.Kept(corpse, part) and corpse:LookupBone(p.grip[1]) then
+			return part
 		end
 	end
 end
