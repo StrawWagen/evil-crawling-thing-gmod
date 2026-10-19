@@ -60,6 +60,8 @@ EvilCrawler.SETTINGS = {
 	{ name = "pilot", default = 0, min = 0, max = 1, label = "Eaten players take over",
 		help = "In integration mode, the first player a crawler finishes eating ends up driving it. "
 			.. "Move, sprint, jump to leap, attack to strike, hold use to let go and respawn" },
+	{ name = "flesh_color", default = 5908524, min = 0, max = 16777215, color = true, label = "Flesh colour",
+		help = "Colour of its flesh. The colour tool paints single crawlers over this" },
 	{ name = "burst", default = 1100, min = 100, max = 3000, decimals = 0, label = "Dart speed",
 		help = "Top speed of a dart" },
 	{ name = "sight_range", default = 4000, min = 0, max = 10000, decimals = 0, label = "Sight range",
@@ -80,6 +82,11 @@ end
 
 function EvilCrawler.Setting(name)
 	return convars[name]:GetFloat()
+end
+
+function EvilCrawler.FleshColor()
+	local v = convars.flesh_color:GetInt()
+	return Color(bit.rshift(v, 16), bit.band(bit.rshift(v, 8), 255), bit.band(v, 255))
 end
 
 if CLIENT then return end

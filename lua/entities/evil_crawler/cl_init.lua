@@ -80,7 +80,6 @@ local SWIM_SOUNDS = {
 	"player/footsteps/wade4.wav",
 }
 
-local FLESH = Color(90, 40, 44)
 local BONE = Color(170, 160, 145)
 local BLOOD = Color(80, 6, 8)
 local HOT = Color(255, 60, 15)
@@ -683,7 +682,7 @@ function ENT:UpdateLimbs()
 	end
 end
 
-local drawing, drawNow, drawHeat, drawRot, drawFull, drawWhole, drawJiggle
+local drawing, drawNow, drawHeat, drawRot, drawFull, drawWhole, drawJiggle, drawFlesh
 
 function ENT:Heave(now, power)
 	self.Heaves = self.Heaves or {}
@@ -723,7 +722,7 @@ end
 local function LimbColor(f, limb)
 	local k = f ^ 3
 	local b = limb.shade
-	local r, g, bl = Lerp(k, FLESH.r, BONE.r), Lerp(k, FLESH.g, BONE.g), Lerp(k, FLESH.b, BONE.b)
+	local r, g, bl = Lerp(k, drawFlesh.r, BONE.r), Lerp(k, drawFlesh.g, BONE.g), Lerp(k, drawFlesh.b, BONE.b)
 	local stain = drawing.blood * math.Clamp((f - 0.55) / 0.3, 0, 1)
 	r, g, bl = Lerp(stain, r, BLOOD.r) * b, Lerp(stain, g, BLOOD.g) * b, Lerp(stain, bl, BLOOD.b) * b
 	if drawHeat <= 0 then return r, g, bl end
@@ -752,7 +751,7 @@ end
 
 local function StrandColor(f, s)
 	local k = s.shade * Lerp((s.depth - 0.6) / 0.4, 0.4, 1)
-	return Shaded(FLESH.r * k, FLESH.g * k, FLESH.b * k, 0.5)
+	return Shaded(drawFlesh.r * k, drawFlesh.g * k, drawFlesh.b * k, 0.5)
 end
 
 local function TipRadius(f, m)
@@ -761,7 +760,7 @@ end
 
 local function TipColor(f, m)
 	local k = f ^ 3
-	return Shaded(Lerp(k, FLESH.r, BONE.r) * m.shade, Lerp(k, FLESH.g, BONE.g) * m.shade, Lerp(k, FLESH.b, BONE.b) * m.shade, f)
+	return Shaded(Lerp(k, drawFlesh.r, BONE.r) * m.shade, Lerp(k, drawFlesh.g, BONE.g) * m.shade, Lerp(k, drawFlesh.b, BONE.b) * m.shade, f)
 end
 
 function ENT:Bundle(morph)
@@ -865,6 +864,8 @@ function ENT:Draw()
 	drawNow = UnPredictedCurTime()
 	drawHeat = (self.Heat or 0) * (0.85 + 0.15 * math.sin(drawNow * 23 + math.sin(drawNow * 7) * 2))
 	drawRot = 1
+	drawFlesh = self:GetColor()
+	if drawFlesh.r == 255 and drawFlesh.g == 255 and drawFlesh.b == 255 then drawFlesh = EvilCrawler.FleshColor() end
 	if self:GetAct() == ACT_DEAD then
 		drawRot = 1 - Smooth(math.Clamp((drawNow - self:GetActStart() - (CORPSE_TIME - ROT_TIME)) / ROT_TIME, 0, 1))
 		if drawRot <= 0 then return end
