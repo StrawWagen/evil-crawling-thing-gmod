@@ -265,6 +265,10 @@ local function Rotting(rag)
 	return IsValid(chest) and chest:IsMotionEnabled()
 end
 
+local function Partless(corpse)
+	return not CurrentPart(corpse) and corpse:GetNW2Int(EvilCrawler.EATEN_VAR, 0) == 0 and not EvilCrawler.Shared(corpse)
+end
+
 function ENT:IsCarrion(rag)
 	return Rotting(rag)
 end
@@ -557,7 +561,7 @@ function ENT:FeedHere(now)
 	self:SetState("feed")
 	self.BiteStage = nil
 	self.BitePart = nil
-	self.FeedUntil = now + PULL_TIME + FEED_CAP
+	self.FeedUntil = now + PULL_TIME + (Partless(self:GetVictim()) and TORSO_TIME or FEED_CAP)
 end
 
 function ENT:StartDrag(now)
@@ -805,6 +809,31 @@ function ENT:Swallowed(corpse, part, now)
 	end
 	Victim.Maimed(corpse, PARTS[part].grip[1], self)
 	hook.Run("EvilCrawlerAte", self, corpse, part)
+end
+
+function ENT:Gulp(corpse)
+	local p = self:GetPos()
+	self.Devoured = true
+	self:SetGorged(self:GetGorged() + #PARTS)
+	if EvilCrawler.Integrating() then
+		self:SetTaken(self:GetTaken() + #PARTS)
+		sound.Play(GULP_SOUNDS[math.random(#GULP_SOUNDS)], p, 75, math.random(40, 50))
+		return
+	end
+	local fx = EffectData()
+	fx:SetOrigin(corpse:WorldSpaceCenter())
+	fx:SetNormal(self.BodyUp)
+	fx:SetScale(10)
+	fx:SetColor(BLOOD_COLOR_RED)
+	fx:SetFlags(7)
+	util.Effect("bloodspray", fx)
+	for _ = 1, 3 do util.Decal("Blood", p, p - self.BodyUp * 200 + VectorRand() * 80, corpse) end
+	sound.Play(CONSUME_SOUNDS[math.random(#CONSUME_SOUNDS)], p, 80, math.random(75, 90))
+	timer.Simple(0.6, function()
+		if IsValid(self) then
+			sound.Play(GULP_SOUNDS[math.random(#GULP_SOUNDS)], self:GetPos(), 75, math.random(45, 60))
+		end
+	end)
 end
 
 function ENT:TakeIn(corpse, part, now)
@@ -1085,6 +1114,7 @@ function ENT:PonderAct(now)
 			self:StartDrag(now)
 		elseif now > self.FeedUntil then
 			if Victim.Alive(victim) then Victim.Kill(victim, self) end
+			if not self.Devoured and Partless(victim) then self:Gulp(victim) end
 			if self.Devoured and not shared then
 				self:Board(victim.EvilCrawlerPlayer)
 				victim:Remove()
