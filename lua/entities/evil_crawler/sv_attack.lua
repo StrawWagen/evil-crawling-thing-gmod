@@ -284,8 +284,9 @@ function ENT:Carrion()
 		if self:IsCarrion(rag) then
 			local heart = self:Heart(rag)
 			local d = heart:Distance(pos)
-			local known = rag == self.Leftover and d < LEFTOVER_RANGE or now - (rag.EvilCrawlerDiedAt or now) > AIRBORNE
-			if (not best or d < bestDist) and (known or d < CARRION_RANGE and self:Clear(pos, rag, heart, MASK_OPAQUE)) then
+			local known = rag == self.Leftover and d < LEFTOVER_RANGE
+			local smelt = d < CARRION_RANGE and now - (rag.EvilCrawlerDiedAt or now) > AIRBORNE
+			if (not best or d < bestDist) and (known or smelt or d < CARRION_RANGE and self:Clear(pos, rag, heart, MASK_OPAQUE)) then
 				best, bestDist = rag, d
 			end
 		end
