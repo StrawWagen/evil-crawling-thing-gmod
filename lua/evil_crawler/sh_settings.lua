@@ -73,29 +73,17 @@ EvilCrawler.SETTINGS = {
 			.. "a trail a crawler is following cyan, and the spot it's heading for ringed" },
 }
 
-local convars, byConVar = {}, {}
-for _, s in ipairs(EvilCrawler.SETTINGS) do
-	s.convar = "evil_crawler_" .. s.name
-	convars[s.name] = CreateConVar(s.convar, tostring(s.default), bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED), s.help, s.min, s.max)
-	byConVar[s.convar] = s
-end
+EvilCrawler.Settings = Evil.Settings({
+	id = "evil_crawler", title = "Evil Crawling Thing", rows = EvilCrawler.SETTINGS,
+	top = function(panel)
+		panel:CheckBox("Show the mash prompt", "evil_crawler_struggle_prompt")
+	end,
+})
 
 function EvilCrawler.Setting(name)
-	return convars[name]:GetFloat()
+	return EvilCrawler.Settings:Get(name)
 end
 
 function EvilCrawler.FleshColor()
-	local v = convars.flesh_color:GetInt()
-	return Color(bit.rshift(v, 16), bit.band(bit.rshift(v, 8), 255), bit.band(v, 255))
+	return Color(EvilCrawler.Settings:Color("flesh_color"))
 end
-
-if CLIENT then return end
-
-util.AddNetworkString("EvilCrawlerSetting")
-
-net.Receive("EvilCrawlerSetting", function(_, ply)
-	local s = byConVar[net.ReadString()]
-	local value = tonumber(net.ReadString())
-	if not s or not value or not IsValid(ply) or not ply:IsSuperAdmin() then return end
-	RunConsoleCommand(s.convar, tostring(math.Clamp(value, s.min, s.max)))
-end)
