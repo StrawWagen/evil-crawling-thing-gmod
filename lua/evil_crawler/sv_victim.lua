@@ -451,7 +451,7 @@ local function PlayerGetUp(rag, ply)
 	end
 	for id, count in pairs(kit.ammo or {}) do ply:SetAmmo(count, id) end
 	if kit.active then ply:SelectWeapon(kit.active) end
-	ply.EvilCrawlerFearUntil = CurTime() + ESCAPE_FEAR
+	Evil.Scare(ply, ESCAPE_FEAR)
 	rag:Remove()
 end
 
@@ -460,7 +460,7 @@ local function GetUp(rag, npc)
 		Victim.bodies[rag] = nil
 		rag.EvilCrawlerOwner = nil
 		npc.EvilCrawlerBody = nil
-		npc.EvilCrawlerFearUntil = CurTime() + ESCAPE_FEAR
+		Evil.Scare(npc, ESCAPE_FEAR)
 		return
 	end
 	if npc:IsPlayer() then
@@ -480,7 +480,7 @@ local function GetUp(rag, npc)
 	npc.PauseAttacks = npc.EvilCrawlerPaused
 	npc.EvilCrawlerVictim = nil
 	npc.EvilCrawlerBody = nil
-	npc.EvilCrawlerFearUntil = CurTime() + ESCAPE_FEAR
+	Evil.Scare(npc, ESCAPE_FEAR)
 	rag.EvilCrawlerOwner = nil
 	rag:Remove()
 	if npc:IsNPC() then

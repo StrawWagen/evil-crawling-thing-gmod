@@ -121,17 +121,12 @@ function Scent.Intensity(node, now)
 	return node.strength * 0.5 ^ ((now - node.time) / HALF_LIFE)
 end
 
-local function Afraid(ent, now)
-	return now < (ent.EvilCrawlerFearUntil or 0)
+local function Afraid(ent)
+	return Evil.Afraid(ent)
 end
 
 function Scent.Frighten(pos, radius, duration)
-	local now, r2 = CurTime(), radius * radius
-	for npc in pairs(Scent.npcs) do
-		if IsValid(npc) and not npc.EvilCrawlerVictim and npc:GetPos():DistToSqr(pos) <= r2 then
-			npc.EvilCrawlerFearUntil = math.max(npc.EvilCrawlerFearUntil or 0, now + duration)
-		end
-	end
+	Evil.Frighten(pos, radius, duration)
 end
 
 local function Strength(ply, now)

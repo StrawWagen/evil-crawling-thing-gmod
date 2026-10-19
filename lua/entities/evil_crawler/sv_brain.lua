@@ -887,6 +887,7 @@ end
 
 local EYE_FLAGS = 65536 + 131072
 local SCATTER_RANGE = 3000
+local PRESENCE_REACH = 400
 
 local function Disposition()
 	return EvilCrawler.Setting("npcs_fight") > 0 and D_HT or D_NU
@@ -911,6 +912,7 @@ function ENT:Expose()
 	self.DrGBase_Target = true
 	self.VJ_ID_Destructible = true
 	self.MovementType = VJ_MOVETYPE_STATIONARY
+	Evil.Presence(self, { reach = PRESENCE_REACH })
 
 	local d = Disposition()
 	for _, npc in ipairs(ents.GetAll()) do
@@ -951,7 +953,7 @@ end
 
 function ENT:Scatter(now)
 	local pos, eye = self:GetPos(), self.Eye
-	Scent.Frighten(pos, SCATTER_RANGE, self.OutUntil - now)
+	Evil.Frighten(pos, SCATTER_RANGE, self.OutUntil - now, true)
 	self.Cowed = {}
 	for _, ent in ipairs(ents.FindInSphere(pos, SCATTER_RANGE)) do
 		if ent.IsDrGNextbot then
@@ -960,15 +962,6 @@ function ENT:Scatter(now)
 		elseif Fights(ent) and IsValid(eye) then
 			ent:AddEntityRelationship(eye, D_FR, 99)
 			self.Cowed[ent] = true
-			if ent.IsVJBaseSNPC then
-				ent:SetEnemy(NULL)
-				ent.TakingCoverT = self.OutUntil
-				if ent.SCHEDULE_COVER_ORIGIN then ent:SCHEDULE_COVER_ORIGIN("TASK_RUN_PATH") end
-			else
-				ent:SetEnemy(eye)
-				ent:UpdateEnemyMemory(eye, pos)
-				ent:SetSchedule(SCHED_RUN_FROM_ENEMY)
-			end
 		end
 	end
 end

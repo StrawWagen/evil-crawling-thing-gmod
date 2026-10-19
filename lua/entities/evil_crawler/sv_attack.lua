@@ -511,7 +511,7 @@ function ENT:BrokeFree(ply, now)
 	local recent = now - (ply.EvilCrawlerEscapedAt or -math.huge) < ESCAPE_MEMORY
 	ply.EvilCrawlerEscapes = (recent and ply.EvilCrawlerEscapes or 0) + 1
 	ply.EvilCrawlerEscapedAt = now
-	ply.EvilCrawlerFearUntil = now + SPOOKED
+	Evil.Scare(ply, SPOOKED)
 
 	local away = ply:WorldSpaceCenter() - self:GetPos()
 	away.z = 0
