@@ -19,6 +19,12 @@ local ORBIT_PITCH = { 5, 75 }
 local ORBIT_TILT = 25
 local FOCUS_RATE = 6
 local UP_RATE = 3
+local PILOT_BACK = 3.4
+local PILOT_RISE = 1.3
+local PILOT_FOCUS = 14
+local PILOT_UP = 4
+local PILOT_PITCH = 80
+local CAM_HULL = Vector(4, 4, 4)
 
 local BONE = Color(170, 160, 145)
 local KEY_BG = Color(10, 8, 9, 200)
@@ -163,6 +169,51 @@ hook.Add("EntityNetworkedVarChanged", "EvilCrawlerStruggle", function(ent, name,
 	ent.GetPlayerColor = function() return value end
 end)
 
+local pilotAng, pilotFocus, pilotUp
+
+local function Driving()
+	local ply = LocalPlayer()
+	local target = IsValid(ply) and EvilCrawler.Devoured(ply)
+	if target and Piloting(ply, target) then return target end
+	pilotAng, pilotFocus, pilotUp = nil, nil, nil
+end
+
+hook.Add("InputMouseApply", "EvilCrawlerPilot", function(cmd, x, y)
+	local crawler = Driving()
+	if not crawler then return end
+	pilotAng = pilotAng or Angle(15, crawler:GetAngles().y, 0)
+	pilotAng.p = math.Clamp(pilotAng.p + y * GetConVar("m_pitch"):GetFloat(), -PILOT_PITCH, PILOT_PITCH)
+	pilotAng.y = math.NormalizeAngle(pilotAng.y - x * GetConVar("m_yaw"):GetFloat())
+	cmd:SetViewAngles(pilotAng)
+	return true
+end)
+
+hook.Add("CreateMove", "EvilCrawlerPilot", function(cmd)
+	if pilotAng and Driving() then cmd:SetViewAngles(pilotAng) end
+end)
+
+local function PilotView(crawler, fov)
+	pilotAng = pilotAng or Angle(15, crawler:GetAngles().y, 0)
+	local dt = FrameTime()
+	local want, wantUp = crawler:GetPos(), crawler:GetUp()
+	pilotFocus = pilotFocus and LerpVector(math.min(1, dt * PILOT_FOCUS), pilotFocus, want) or want
+	pilotUp = pilotUp and LerpVector(math.min(1, dt * PILOT_UP), pilotUp, wantUp):GetNormalized() or wantUp
+
+	local h = crawler.BodyHeight or 40
+	local from = pilotFocus + pilotUp * (h * 0.5)
+	local tr = util.TraceHull({
+		start = from, endpos = pilotFocus + pilotUp * (h * PILOT_RISE) - pilotAng:Forward() * (h * PILOT_BACK),
+		mins = -CAM_HULL, maxs = CAM_HULL, mask = MASK_SOLID_BRUSHONLY,
+	})
+	return { origin = tr.HitPos, angles = Angle(pilotAng.p, pilotAng.y, 0), fov = fov, drawviewer = false }
+end
+
+hook.Add("HUDPaint", "EvilCrawlerPilot", function()
+	if not Driving() then return end
+	surface.SetDrawColor(BONE.r, BONE.g, BONE.b, 160)
+	surface.DrawRect(ScrW() * 0.5 - 2, ScrH() * 0.5 - 2, 4, 4)
+end)
+
 local focus, orbitUp
 
 hook.Add("CalcView", "EvilCrawlerDevoured", function(ply, _, angles, fov)
@@ -171,6 +222,8 @@ hook.Add("CalcView", "EvilCrawlerDevoured", function(ply, _, angles, fov)
 		focus, orbitUp = nil, nil
 		return
 	end
+	local pilot = Driving()
+	if pilot then return PilotView(pilot, fov) end
 
 	local crawler = target:GetClass() == "evil_crawler"
 	local want = crawler and target:GetPos() or target:WorldSpaceCenter()
@@ -179,8 +232,7 @@ hook.Add("CalcView", "EvilCrawlerDevoured", function(ply, _, angles, fov)
 	focus = focus and LerpVector(math.min(1, dt * FOCUS_RATE), focus, want) or want
 	orbitUp = orbitUp and LerpVector(math.min(1, dt * UP_RATE), orbitUp, wantUp):GetNormalized() or wantUp
 
-	local drift = crawler and Piloting(ply, target) and 0 or ORBIT_DRIFT
-	local yaw = math.rad(angles.y + 180 + RealTime() * drift)
+	local yaw = math.rad(angles.y + 180 + RealTime() * ORBIT_DRIFT)
 	local around = Vector(math.cos(yaw), math.sin(yaw), 0)
 	around = around - orbitUp * around:Dot(orbitUp)
 	if around:LengthSqr() < 1e-4 then around = orbitUp:Angle():Right() end
