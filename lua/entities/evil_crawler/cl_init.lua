@@ -2,6 +2,7 @@ include("shared.lua")
 include("evil_crawler/cl_flesh.lua")
 include("evil_crawler/cl_remains.lua")
 include("evil_crawler/cl_struggle.lua")
+include("evil_crawler/cl_stomach.lua")
 
 local cv_debug = CreateClientConVar("evil_crawler_debug", "0", false, false, "Draw foot targets")
 

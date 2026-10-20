@@ -456,6 +456,40 @@ function ENT:Learn(ply)
 	if not skills then return end
 	self.Know = self.Know or {}
 	for trick, k in pairs(skills) do self.Know[trick] = math.min(KNOW_MAX, (self.Know[trick] or 0) + k) end
+	return skills
+end
+
+function ENT:Meal(corpse)
+	corpse.EvilCrawlerMeals = corpse.EvilCrawlerMeals or {}
+	local v = corpse.EvilCrawlerMeals[self]
+	if v then return v end
+	local st = self.EvilStomach
+	if corpse.EvilCrawlerWho then
+		v = st:Add(table.Copy(corpse.EvilCrawlerWho))
+	else
+		v = st:Eat(corpse, { kind = "corpse" })
+	end
+	v.parts = 0
+	corpse.EvilCrawlerMeals[self] = v
+	return v
+end
+
+function ENT:Finish(corpse, v)
+	if v.digested then return end
+	v.tricks = self:Learn(corpse.EvilCrawlerPlayer)
+	self.EvilStomach:Settle(v)
+end
+
+function ENT:EvilStomachProgress()
+	local out = {}
+	for _, v in ipairs(self.EvilStomach.victims) do
+		if not v.digested then out[#out + 1] = { v.n, v.parts / #PARTS } end
+	end
+	return out
+end
+
+function ENT:EvilStomachSummary()
+	return { gorged = self:GetGorged(), know = self.Know }
 end
 
 function ENT:GripOn(ply)
@@ -821,8 +855,11 @@ function ENT:Consume(corpse, part, now)
 end
 
 function ENT:Swallowed(corpse, part, now)
+	local v = self:Meal(corpse)
+	v.parts = math.min(v.parts + 1, #PARTS)
 	if not CurrentPart(corpse) then
-		self:Learn(corpse.EvilCrawlerPlayer)
+		v.parts = #PARTS
+		self:Finish(corpse, v)
 		self.Devoured = true
 		self.FeedUntil = math.min(self.FeedUntil, now + FINISH_TIME)
 	end
@@ -832,7 +869,9 @@ end
 
 function ENT:Gulp(corpse)
 	local p = self:GetPos()
-	self:Learn(corpse.EvilCrawlerPlayer)
+	local v = self:Meal(corpse)
+	v.parts = #PARTS
+	self:Finish(corpse, v)
 	self.Devoured = true
 	self:SetGorged(self:GetGorged() + #PARTS)
 	if EvilCrawler.Integrating() then

@@ -229,6 +229,7 @@ local function Hold(rag, ent, holder, sedation)
 	ent.EvilCrawlerBody = rag
 	rag.EvilCrawlerOwner = ent
 	if ent:IsPlayer() then rag.EvilCrawlerPlayer = ent end
+	rag.EvilCrawlerWho = rag.EvilCrawlerWho or Evil.Describe(ent)
 	rag.EvilCrawlerHolder = holder
 	rag.EvilCrawlerVoice = VoiceOf(ent, rag)
 	rag.EvilCrawlerPitch = math.random(94, 106)
