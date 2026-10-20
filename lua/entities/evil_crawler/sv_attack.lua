@@ -1,6 +1,7 @@
 local Victim = EvilCrawler.Victim
 local Creature = EvilCrawler.Creature
 local Proxy = EvilCrawler.Proxy
+local Souls = EvilCrawler.Souls
 local ACT_NONE, ACT_STRIKE, ACT_DRAG, ACT_FEED =
 	EvilCrawler.ACT_NONE, EvilCrawler.ACT_STRIKE, EvilCrawler.ACT_DRAG, EvilCrawler.ACT_FEED
 local ACT_GRAPPLE, ACT_STUN, ACT_SEAR = EvilCrawler.ACT_GRAPPLE, EvilCrawler.ACT_STUN, EvilCrawler.ACT_SEAR
@@ -40,6 +41,9 @@ local PRESS_RATE = 16
 local PRESS_BURST = 4
 local SLIP = 0.3
 local ESCAPE_MEMORY = 90
+local KNOW_MAX = 3
+local KNOW_GRIP = 0.5
+local KNOW_REACH = 0.25
 local REEL = 0.45
 local LIFT = 18
 local NIP_TIME = { 0.45, 0.9 }
@@ -443,9 +447,21 @@ function ENT:LetGo(ply)
 	if not EvilCrawler.Fake(ply) then ply:SetMoveType(MOVETYPE_WALK) end
 end
 
+function ENT:Knows(trick)
+	return self.Know and self.Know[trick] or 0
+end
+
+function ENT:Learn(ply)
+	local skills = IsValid(ply) and Souls:Digest(ply)
+	if not skills then return end
+	self.Know = self.Know or {}
+	for trick, k in pairs(skills) do self.Know[trick] = math.min(KNOW_MAX, (self.Know[trick] or 0) + k) end
+end
+
 function ENT:GripOn(ply)
 	local recent = CurTime() - (ply.EvilCrawlerEscapedAt or -math.huge) < ESCAPE_MEMORY
-	return SLIP * self:Wits() * (1 + EvilCrawler.Setting("escape_tighten") * (recent and ply.EvilCrawlerEscapes or 0))
+	local tighten = 1 + EvilCrawler.Setting("escape_tighten") * (recent and ply.EvilCrawlerEscapes or 0)
+	return SLIP * self:Wits() * tighten * (1 + KNOW_GRIP * self:Knows("slip"))
 end
 
 function ENT:Grapple(ply, now)
@@ -511,6 +527,7 @@ function ENT:BrokeFree(ply, now)
 	local recent = now - (ply.EvilCrawlerEscapedAt or -math.huge) < ESCAPE_MEMORY
 	ply.EvilCrawlerEscapes = (recent and ply.EvilCrawlerEscapes or 0) + 1
 	ply.EvilCrawlerEscapedAt = now
+	Souls:Watch(ply, "slip")
 	Evil.Scare(ply, SPOOKED)
 
 	local away = ply:WorldSpaceCenter() - self:GetPos()
@@ -805,6 +822,7 @@ end
 
 function ENT:Swallowed(corpse, part, now)
 	if not CurrentPart(corpse) then
+		self:Learn(corpse.EvilCrawlerPlayer)
 		self.Devoured = true
 		self.FeedUntil = math.min(self.FeedUntil, now + FINISH_TIME)
 	end
@@ -814,6 +832,7 @@ end
 
 function ENT:Gulp(corpse)
 	local p = self:GetPos()
+	self:Learn(corpse.EvilCrawlerPlayer)
 	self.Devoured = true
 	self:SetGorged(self:GetGorged() + #PARTS)
 	if EvilCrawler.Integrating() then
@@ -1153,7 +1172,9 @@ function ENT:UpdateAct(now)
 		end
 		if t >= IMPACT_TIME then
 			local center = Proxy(victim):WorldSpaceCenter()
-			if center:Distance(self:GetPos()) >= MISS_REACH * self.Scale or not self:Clear(self:GetPos(), victim) then
+			local reach = MISS_REACH * self.Scale * (1 + KNOW_REACH * self:Knows("dodge"))
+			if center:Distance(self:GetPos()) >= reach or not self:Clear(self:GetPos(), victim) then
+				if victim:IsPlayer() then Souls:Watch(victim, "dodge") end
 				self:Release()
 			elseif victim:IsPlayer() then
 				self:Seize(victim, now)

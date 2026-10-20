@@ -2,6 +2,8 @@ local Scent = EvilCrawler.Scent
 local Hearing = EvilCrawler.Hearing
 local Creature = EvilCrawler.Creature
 local Proxy = EvilCrawler.Proxy
+local Souls = Evil.SoulDigestion({ id = "evil_crawler", tricks = { slip = 3, dodge = 5, outrun = 2 } })
+EvilCrawler.Souls = Souls
 
 local cv_puppet = CreateConVar("evil_crawler_puppet", "0", 0, "Crawlers follow their spawner's crosshair instead of thinking")
 local cv_debug = GetConVar("evil_crawler_debug_scent")
@@ -59,6 +61,7 @@ local SEEN_RESET = 1
 local ANGER_MAX = 3
 local ANGER_FADE = 180
 local ANGER_PACE = 0.15
+local KNOW_PACE = 0.15
 local PAIN_SOUNDS = { "npc/barnacle/barnacle_die1.wav", "npc/barnacle/barnacle_die2.wav" }
 local PAIN_HIT_SOUND = "physics/flesh/flesh_squishy_impact_hard2.wav"
 local SHOT_RADIUS = 0.9
@@ -559,6 +562,10 @@ function ENT:Ponder()
 		self.Heading = self:FreshHeading(pos, now)
 		self.NextVeer = now + math.Rand(4, 9)
 	end
+	local fled = self.Hunted
+	if self.State == "search" and IsValid(fled) and fled:IsPlayer() and fled:Alive() and now - self.SensedAt < LOST_MEMORY then
+		Souls:Watch(fled, "outrun")
+	end
 	self:SetState("roam")
 	self.Goal = pos + self.Heading * 1000
 end
@@ -878,7 +885,7 @@ function ENT:Steer()
 	self:Fits(now)
 	if self.Still then return nil, 0, SNAP end
 	local pace = self.Pace or 0
-	if CHASING[self.State] then pace = pace * (1 + ANGER_PACE * (self.Anger or 0)) end
+	if CHASING[self.State] then pace = pace * (1 + ANGER_PACE * (self.Anger or 0) + KNOW_PACE * self:Knows("outrun")) end
 	if self.State == "drag" then
 		pace = pace * (1 - math.Clamp(((self.HoldLag or 0) - SNAGGED[1]) / (SNAGGED[2] - SNAGGED[1]), 0, 0.9))
 	end
