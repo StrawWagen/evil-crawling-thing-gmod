@@ -604,7 +604,7 @@ function ENT:Listen(now)
 	local mult = EvilCrawler.Setting("hearing") * self:Wits()
 	if mult <= 0 then return end
 	local pos, best, bestLoud = self:GetPos()
-	for _, n in ipairs(Hearing.noises) do
+	for _, n in ipairs(Hearing.Recent(now)) do
 		if n.time > since and self:Heeds(n.source) then
 			local range = n.range * mult
 			local d = n.pos:Distance(pos)
@@ -1093,6 +1093,7 @@ function ENT:Wake(now)
 	self.Anger = ANGER_MAX
 	self.CalmAt = now + ANGER_FADE
 	self.Spent = nil
+	self.HeardAt, self.Noise, self.Taunt = now, nil, nil
 	self:SetState("search")
 	self.Goal = self.LastKnown
 	self.SearchUntil = now + SEARCH_TIME

@@ -15,13 +15,19 @@ local SNEAK = 150
 Hearing.noises = Hearing.noises or {}
 Hearing.crawlers = Hearing.crawlers or {}
 
+function Hearing.Recent(now)
+	local noises = Hearing.noises
+	while noises[1] and now - noises[1].time > KEEP do table.remove(noises, 1) end
+	return noises
+end
+
 function Hearing.Make(pos, range, source)
 	if not next(Hearing.crawlers) then return end
 	for crawler in pairs(Hearing.crawlers) do
 		if IsValid(crawler) and crawler:GetPos():Distance(pos) < NEAR then return end
 	end
-	local now, noises = CurTime(), Hearing.noises
-	while noises[1] and now - noises[1].time > KEEP do table.remove(noises, 1) end
+	local now = CurTime()
+	local noises = Hearing.Recent(now)
 	for i = #noises, 1, -1 do
 		local n = noises[i]
 		if now - n.time > 0.5 then break end
