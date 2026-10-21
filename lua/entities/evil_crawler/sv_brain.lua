@@ -1,4 +1,5 @@
 local Scent = EvilCrawler.Scent
+local Victim = EvilCrawler.Victim
 local Hearing = EvilCrawler.Hearing
 local Creature = EvilCrawler.Creature
 local Proxy = EvilCrawler.Proxy
@@ -1193,7 +1194,7 @@ local function Burnable(ent)
 		return ent:Alive() and not EvilCrawler.IgnoresPlayers() and not ent:HasGodMode()
 			and not EvilCrawler.Noclipping(ent) and ent:GetObserverMode() == OBS_MODE_NONE
 	end
-	return Creature(ent) and EvilCrawler.Living(ent) and ent:GetClass() ~= "npc_bullseye"
+	return Creature(ent) and EvilCrawler.Living(ent) and ent:GetClass() ~= "npc_bullseye" and not Victim.Shrugged(ent)
 end
 
 function ENT:Accuse(by, now)

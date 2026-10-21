@@ -119,7 +119,7 @@ local INSIDE_VAR = EvilCrawler.INSIDE_VAR
 local spat = {}
 
 function ENT:IsEdible(ent)
-	if not Creature(ent) or not EvilCrawler.Living(ent) or ent.EvilCrawlerVictim then return false end
+	if not Creature(ent) or not EvilCrawler.Living(ent) or ent.EvilCrawlerVictim or Victim.Shrugged(ent) then return false end
 	if ent:IsNextBot() then return true end
 	if ent:GetMoveType() ~= MOVETYPE_STEP then return false end
 	local size = ent:OBBMaxs() - ent:OBBMins()
@@ -195,6 +195,7 @@ end
 function ENT:Incinerate(victim)
 	self:Release()
 	victim.EvilCrawlerVictim = nil
+	if not victim:IsPlayer() and Victim.Shrugs(victim, self) then return end
 	if victim:IsPlayer() and victim:InVehicle() then Victim.Yank(victim, self:GetPos()) end
 	local center = Proxy(victim):WorldSpaceCenter()
 
@@ -473,6 +474,10 @@ end
 
 function ENT:Strike(npc)
 	local now = CurTime()
+	if Victim.Shrugs(npc, self) or not IsValid(npc) or not EvilCrawler.Living(npc) then
+		self:Release()
+		return
+	end
 	local center = npc:WorldSpaceCenter()
 	local dir = (center - self:GetPos()):GetNormalized()
 
@@ -521,8 +526,8 @@ function ENT:Skewer(npc, now)
 	dmg:SetDamagePosition(center)
 	npc:TakeDamageInfo(dmg)
 	if IsValid(npc) and EvilCrawler.Living(npc) then
-		hook.Run("OnNPCKilled", npc, self, self)
-		npc:Remove()
+		Victim.Shrug(npc)
+		return
 	end
 	self:Spit(BONES[1])
 	self:Sate(now)

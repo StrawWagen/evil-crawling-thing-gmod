@@ -15,6 +15,7 @@ local ESCAPE_FEAR = 90
 local BLEED = 0.02
 local TAKEN_SEDATION = 0.7
 local YANK = { 450, 150 }
+local SHRUG_MEMORY = 60
 
 local NIP_SOUNDS = {
 	"physics/flesh/flesh_impact_bullet2.wav",
@@ -519,6 +520,30 @@ function Victim.Spare(rag)
 	if IsValid(holder) and holder:GetVictim() == rag then holder:Release() end
 	local owner = rag.EvilCrawlerOwner
 	if IsValid(owner) then GetUp(rag, owner) end
+end
+
+function Victim.Shrug(npc)
+	npc.EvilCrawlerShrugAt = CurTime()
+end
+
+function Victim.Shrugged(npc)
+	return CurTime() - (npc.EvilCrawlerShrugAt or -math.huge) < SHRUG_MEMORY
+end
+
+function Victim.Shrugs(npc, attacker)
+	if Victim.Shrugged(npc) then return true end
+	local before = npc:Health()
+	if npc:IsPlayer() or before <= 0 then return false end
+	local dmg = DamageInfo()
+	dmg:SetDamage(1)
+	dmg:SetDamageType(DMG_SLASH)
+	dmg:SetAttacker(attacker)
+	dmg:SetInflictor(attacker)
+	dmg:SetDamagePosition(npc:WorldSpaceCenter())
+	npc:TakeDamageInfo(dmg)
+	if not IsValid(npc) or not EvilCrawler.Living(npc) or npc:Health() < before then return false end
+	Victim.Shrug(npc)
+	return true
 end
 
 function Victim.Spared(rag)
