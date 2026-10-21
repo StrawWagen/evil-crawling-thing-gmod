@@ -265,8 +265,11 @@ function Victim.Yank(ply, from)
 		return
 	end
 	local pull = (from - rag:GetPos()):GetNormalized() * YANK[1] + vector_up * YANK[2]
+	local welds = EvilCrawler.Own(rag, "welds")
 	rag.removingwelds = true
-	for _, weld in pairs(rag.welds or {}) do SafeRemoveEntity(weld) end
+	if istable(welds) then
+		for _, weld in pairs(welds) do SafeRemoveEntity(weld) end
+	end
 	rag.welds, rag.removingwelds = nil, nil
 	rag:SetParent()
 	for i = 0, rag:GetPhysicsObjectCount() - 1 do rag:GetPhysicsObjectNum(i):SetVelocity(pull) end
@@ -517,7 +520,8 @@ local function Update(rag, now)
 	else
 		rag.Sedation = math.max(0, rag.Sedation - dt / WEAR_OFF)
 	end
-	if fake and npc.organism.otrub then rag.Sedation = 1 end
+	local organism = fake and EvilCrawler.Own(npc, "organism")
+	if istable(organism) and organism.otrub then rag.Sedation = 1 end
 	local lucid = Lucid(rag)
 	local bleeding = rag.Maimed and not fake
 
@@ -581,7 +585,7 @@ hook.Add("Think", "EvilCrawlerVictims", function()
 end)
 
 hook.Add("EntityTakeDamage", "EvilCrawlerVictims", function(ent, dmg)
-	if ent.EvilCrawlerBody and ent.EvilCrawlerBody ~= ent.FakeRagdoll then return true end
+	if ent.EvilCrawlerBody and ent.EvilCrawlerBody ~= EvilCrawler.Own(ent, "FakeRagdoll") then return true end
 	if not Victim.Alive(ent) or EvilCrawler.Faker(ent) or dmg:IsDamageType(DMG_CRUSH) then return end
 	local attacker = dmg:GetAttacker()
 	if IsValid(attacker) and (attacker:IsPlayer() or EvilCrawler.Creature(attacker)) then
@@ -596,7 +600,7 @@ hook.Add("EntityRemoved", "EvilCrawlerVictims", function(ent)
 	owner.EvilCrawlerBody = nil
 	if not owner:IsPlayer() then
 		owner:Remove()
-	elseif owner:Alive() and owner.FakeRagdoll ~= ent then
+	elseif owner:Alive() and EvilCrawler.Own(owner, "FakeRagdoll") ~= ent then
 		owner:KillSilent()
 	end
 end)

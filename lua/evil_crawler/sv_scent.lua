@@ -36,9 +36,18 @@ function EvilCrawler.Living(ent)
 	return ent:Health() > 0 or ent:IsNextBot() and ent:GetMaxHealth() <= 0
 end
 
+local function Own(ent, key)
+	local tab = ent:GetTable()
+	return tab and tab[key]
+end
+EvilCrawler.Own = Own
+
+local function Ent(v)
+	return IsEntity(v) and IsValid(v) and v
+end
+
 function EvilCrawler.Fake(ply)
-	local rag = ply.FakeRagdoll
-	return IsValid(rag) and rag
+	return Ent(Own(ply, "FakeRagdoll"))
 end
 
 function EvilCrawler.Proxy(ent)
@@ -46,8 +55,8 @@ function EvilCrawler.Proxy(ent)
 end
 
 function EvilCrawler.Faker(rag)
-	local ply = rag.ply
-	return IsValid(ply) and ply.FakeRagdoll == rag and ply
+	local ply = Ent(Own(rag, "ply"))
+	return ply and ply:IsPlayer() and EvilCrawler.Fake(ply) == rag and ply
 end
 
 function EvilCrawler.Noclipping(ply)
