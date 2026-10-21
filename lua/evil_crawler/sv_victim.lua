@@ -16,6 +16,7 @@ local BLEED = 0.02
 local TAKEN_SEDATION = 0.7
 local YANK = { 450, 150 }
 local SHRUG_MEMORY = 60
+local SHRUG_TEST = 5
 
 local NIP_SOUNDS = {
 	"physics/flesh/flesh_impact_bullet2.wav",
@@ -535,7 +536,7 @@ function Victim.Shrugs(npc, attacker)
 	local before = npc:Health()
 	if npc:IsPlayer() or before <= 0 then return false end
 	local dmg = DamageInfo()
-	dmg:SetDamage(1)
+	dmg:SetDamage(SHRUG_TEST)
 	dmg:SetDamageType(DMG_SLASH)
 	dmg:SetAttacker(attacker)
 	dmg:SetInflictor(attacker)

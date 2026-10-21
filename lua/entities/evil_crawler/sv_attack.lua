@@ -474,7 +474,7 @@ end
 
 function ENT:Strike(npc)
 	local now = CurTime()
-	if Victim.Shrugs(npc, self) or not IsValid(npc) or not EvilCrawler.Living(npc) then
+	if not IsValid(npc) or not EvilCrawler.Living(npc) or Victim.Shrugs(npc, self) then
 		self:Release()
 		return
 	end
