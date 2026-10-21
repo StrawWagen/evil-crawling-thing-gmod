@@ -202,6 +202,19 @@ local function Hide(npc)
 	npc.PauseAttacks = true
 end
 
+local function Manips(rag, ent)
+	if not ent:HasBoneManipulations() then return end
+	for b = 0, ent:GetBoneCount() - 1 do
+		local to = rag:LookupBone(ent:GetBoneName(b))
+		if to then
+			rag:ManipulateBonePosition(to, ent:GetManipulateBonePosition(b))
+			rag:ManipulateBoneAngles(to, ent:GetManipulateBoneAngles(b))
+			rag:ManipulateBoneScale(to, ent:GetManipulateBoneScale(b))
+			rag:ManipulateBoneJiggle(to, ent:GetManipulateBoneJiggle(b))
+		end
+	end
+end
+
 local function Body(ent)
 	local rag = ents.Create("prop_ragdoll")
 	if not IsValid(rag) then return end
@@ -216,6 +229,7 @@ local function Body(ent)
 	end
 	rag:Spawn()
 	rag:Activate()
+	Manips(rag, ent)
 
 	local ok, err = pcall(Pose, rag, ent)
 	if not ok or rag:GetPhysicsObjectCount() == 0 then
