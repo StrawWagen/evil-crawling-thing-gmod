@@ -53,6 +53,10 @@ local DEATH_PULL = 4
 local SNIFF_TIME = 5
 local FEAR_PULL = 1.5
 local GRUDGE_PULL = 2.5
+local GRUDGE_HOLD = 8
+local GRUDGE_OUTWEIGH = 2
+local RAGE_BALK = 4
+local BALK_STEP = 48
 local FLEE_TIME = 8
 local HIDE_SPREAD = { 2 / 3, 4 / 3 }
 local HIDE_SIGHT = 1500
@@ -239,6 +243,7 @@ function ENT:Look(now)
 			self.Awareness[ent] = sure
 		end
 	end
+	if self.Grudge and self.InView[self.Grudge] then self.GrudgeAt = now end
 end
 
 function ENT:Glimpse()
@@ -1040,7 +1045,7 @@ function ENT:Hurt(attacker, from)
 		return
 	end
 	if self.State == "flee" then
-		if IsValid(attacker) and attacker ~= self and not attacker:IsWorld() then self.Grudge = attacker end
+		self:Accuse(attacker, now)
 		return
 	end
 	self:Enrage(attacker, now)
@@ -1054,8 +1059,8 @@ end
 
 function ENT:Blame(by)
 	if not IsValid(by) or by == self or by:IsWorld() then return end
-	self.Grudge = by
-	self.LastKnown = Proxy(by):GetPos()
+	self:Accuse(by, CurTime())
+	self.LastKnown = Proxy(self.Grudge):GetPos()
 end
 
 function ENT:Awake()
@@ -1159,7 +1164,8 @@ end
 function ENT:Rage(by, now)
 	self.Hits, self.Blows = nil, 0
 	if self:GetAct() ~= EvilCrawler.ACT_NONE then self:Release() end
-	if IsValid(by) and by ~= self and not by:IsWorld() then self.Grudge = by end
+	self:Accuse(by, now)
+	self.Closing = nil
 	self:SetRageUntil(now + EvilCrawler.Setting("rage_time"))
 	self:SetState("rage")
 	self.Trail, self.DetourUntil, self.Goal = nil, nil, nil
@@ -1179,17 +1185,48 @@ local function Burnable(ent)
 	return Creature(ent) and EvilCrawler.Living(ent) and ent:GetClass() ~= "npc_bullseye"
 end
 
-function ENT:Quarry()
-	if Burnable(self.Grudge) then return self.Grudge end
+function ENT:Accuse(by, now)
+	if not IsValid(by) or by == self or by:IsWorld() then return end
+	local held = self.Grudge
+	if by ~= held and Burnable(held) and now - (self.GrudgeAt or -math.huge) < GRUDGE_HOLD
+		and self:Weight(by) <= self:Weight(held) * GRUDGE_OUTWEIGH then
+		return
+	end
+	self.Grudge, self.GrudgeAt = by, now
+end
+
+function ENT:Balks(ent, now)
+	return self.Balked ~= nil and (self.Balked[ent] or 0) > now
+end
+
+function ENT:Quarry(now)
 	local pos = self:GetPos()
+	local grudge = Burnable(self.Grudge) and self.Grudge or nil
+	if grudge and not self:Balks(grudge, now) then
+		if self:Clear(pos, grudge, nil, MASK_OPAQUE) then self.GrudgeAt = now end
+		if now - (self.GrudgeAt or -math.huge) < GRUDGE_HOLD then return grudge end
+	end
 	local best, bestDist = nil, EvilCrawler.Setting("sight_range") * self:Wits()
 	for _, ent in ipairs(ents.FindInSphere(pos, bestDist)) do
-		if Burnable(ent) then
+		if ent ~= grudge and Burnable(ent) and not self:Balks(ent, now) then
 			local d = Proxy(ent):WorldSpaceCenter():Distance(pos)
 			if d < bestDist and self:Clear(pos, ent, nil, MASK_OPAQUE) then best, bestDist = ent, d end
 		end
 	end
+	if not best then return grudge end
+	self.Grudge, self.GrudgeAt = best, now
 	return best
+end
+
+function ENT:Closes(target, pos, now)
+	local d = Proxy(target):NearestPoint(pos):Distance(pos)
+	if self.Closing ~= target or d < self.ClosestIn - BALK_STEP then
+		self.Closing, self.ClosestIn, self.ClosedAt = target, d, now
+	elseif now - self.ClosedAt > RAGE_BALK then
+		self.Balked = self.Balked or setmetatable({}, { __mode = "k" })
+		self.Balked[target] = now + GRUDGE_HOLD
+		self.Closing = nil
+	end
 end
 
 function ENT:Rampage(now)
@@ -1200,7 +1237,7 @@ function ENT:Rampage(now)
 	end
 
 	local pos = self:GetPos()
-	local target = self:Quarry()
+	local target = self:Quarry(now)
 	self:SetPrey(target or NULL)
 	if not target then
 		if not self.Goal or self:Reached(self.Goal) then self.Goal = self:Around(pos, 600) end
@@ -1211,6 +1248,7 @@ function ENT:Rampage(now)
 		return true
 	end
 	self.Goal = Proxy(target):GetPos()
+	self:Closes(target, pos, now)
 	self:Overhead(target, now)
 	return true
 end
@@ -1304,7 +1342,7 @@ function ENT:LyingLow(now)
 end
 
 function ENT:Enrage(by, now)
-	if IsValid(by) and by ~= self and not by:IsWorld() then self.Grudge = by end
+	self:Accuse(by, now)
 	self.Anger = math.min(ANGER_MAX, (self.Anger or 0) + 1)
 	self.CalmAt = now + ANGER_FADE
 end
