@@ -1,4 +1,5 @@
 include("shared.lua")
+if not Evil then return end
 include("evil_crawler/cl_flesh.lua")
 include("evil_crawler/cl_remains.lua")
 include("evil_crawler/cl_struggle.lua")

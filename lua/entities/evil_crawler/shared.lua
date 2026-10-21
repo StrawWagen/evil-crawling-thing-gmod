@@ -1,3 +1,12 @@
+if not Evil then
+	ENT.Type = "anim"
+	ENT.Base = "base_anim"
+	ENT.PrintName = "Evil Crawler"
+	ENT.Category = "Syhgma's Evil Entities"
+	ENT.Spawnable = false
+	return
+end
+
 include("evil_crawler/sh_ik.lua")
 include("evil_crawler/sh_morph.lua")
 include("evil_crawler/sh_struggle.lua")

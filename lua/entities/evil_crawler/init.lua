@@ -8,6 +8,7 @@ AddCSLuaFile("evil_crawler/cl_flesh.lua")
 AddCSLuaFile("evil_crawler/cl_remains.lua")
 AddCSLuaFile("evil_crawler/cl_stomach.lua")
 include("shared.lua")
+if not Evil then return end
 include("sv_brain.lua")
 include("sv_attack.lua")
 

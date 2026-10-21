@@ -4,9 +4,9 @@ ENT.Type = "anim"
 ENT.Base = "base_anim"
 ENT.PrintName = "Evil Crawler (somewhere)"
 ENT.Category = "Syhgma's Evil Entities"
-ENT.Spawnable = true
+ENT.Spawnable = Evil ~= nil
 
-if CLIENT then return end
+if CLIENT or not Evil then return end
 
 local TRIES = 60
 local FAR = 1500
