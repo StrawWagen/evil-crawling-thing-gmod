@@ -283,7 +283,7 @@ function ENT:Appeal(node, now)
 	local spent = self.Spent[trail]
 	if spent and node.time <= spent then return 0 end
 	if trail.death then
-		if EvilCrawler.Setting("eat_corpses") == 0 or not self:IsHungry() or owner and not self:IsCarrion(owner) then return 0 end
+		if EvilCrawler.Setting("eat_corpses") == 0 or not self:IsHungry() or owner and (not self:IsCarrion(owner) or self:Shuns(owner, now)) then return 0 end
 		return Scent.Intensity(node, now) * DEATH_PULL
 	end
 	if not IsValid(owner) then return 0 end
@@ -402,7 +402,7 @@ function ENT:Ponder()
 		self:SetPrey(NULL)
 		if self:Scavenge(meal) then return end
 		self:SetState("scavenge")
-		self.Goal = self:Heart(meal)
+		self.Goal = self:Approach(meal, now)
 		return
 	end
 	local reek = not puppet and self:Reeks(pos, now)
@@ -412,7 +412,7 @@ function ENT:Ponder()
 			self.Taunt = nil
 			self:SetPrey(NULL)
 			self:SetState("scavenge")
-			self.Trail, self.Goal = reek, heart.pos
+			self.Trail, self.Goal = reek, self:Approach(reek.trail.owner, now)
 			return
 		end
 		self:Spend(heart)

@@ -62,6 +62,13 @@ local REEK_MOVED = 150
 local FRESH_TIME = 60
 local AIRBORNE = 10
 local REEK_FRESH, REEK_STALE = 3, 1.5
+local SMELL_NEAR = 600
+local RING_TRIES = 12
+local RING_GAP = 1
+local CRAVE_GAP = 2
+local CRAVE_CLOSER = 48
+local GIVE_UP = 10
+local SHUN_TIME = 60
 local carrion = {}
 
 local WINDUP_SOUNDS = { "npc/barnacle/barnacle_tongue_pull1.wav", "npc/barnacle/barnacle_tongue_pull2.wav" }
@@ -281,17 +288,78 @@ function ENT:Heart(rag)
 	return Chest(rag):GetPos()
 end
 
+function ENT:Shun(corpse, now)
+	self.Shunned = self.Shunned or setmetatable({}, { __mode = "k" })
+	self.Shunned[corpse] = now + SHUN_TIME
+	self.Craving = nil
+	if self.Leftover == corpse then self.Leftover = nil end
+end
+
+function ENT:Shuns(corpse, now)
+	return self.Shunned ~= nil and (self.Shunned[corpse] or 0) > now
+end
+
+function ENT:Ring(corpse, now)
+	self.Rings = self.Rings or setmetatable({}, { __mode = "k" })
+	local seen = self.Rings[corpse]
+	if seen and now - seen.at < RING_GAP and not (seen.node and seen.node.dead) then return seen end
+	local pos, heart = self:GetPos(), self:Heart(corpse)
+	seen = { at = now, open = not self:Trace(pos, heart).Hit, node = false }
+	self.Rings[corpse] = seen
+	if seen.open then return seen end
+	local nodes = {}
+	for _, trail in ipairs(EvilCrawler.Scent.reeks[corpse] or {}) do
+		local node = trail.first
+		while node do
+			if not node.dead then nodes[#nodes + 1] = { node, node.pos:Distance(pos) + node.pos:Distance(heart) } end
+			node = node.next
+		end
+	end
+	table.sort(nodes, function(a, b) return a[2] < b[2] end)
+	for i = 1, math.min(#nodes, RING_TRIES) do
+		if self:Smells(nodes[i][1]) then
+			seen.node = nodes[i][1]
+			break
+		end
+	end
+	return seen
+end
+
+function ENT:Approach(corpse, now)
+	local pos, heart = self:GetPos(), self:Heart(corpse)
+	local goal = heart
+	local ring = self:Ring(corpse, now)
+	if not ring.open and ring.node then
+		ring.node = self:FollowTrail(ring.node)
+		goal = ring.node.pos
+	end
+	local left = pos:Distance(goal) + goal:Distance(heart)
+	if self.Craving ~= corpse or now - self.CravedAt > CRAVE_GAP then
+		self.Craving, self.CraveLeft, self.CraveSince = corpse, left, now
+	elseif left < self.CraveLeft - CRAVE_CLOSER then
+		self.CraveLeft, self.CraveSince = left, now
+	elseif now - self.CraveSince > GIVE_UP then
+		self:Shun(corpse, now)
+	end
+	self.CravedAt = now
+	return goal
+end
+
 function ENT:Carrion()
 	if EvilCrawler.Setting("eat_corpses") == 0 or not self:IsHungry() then return end
 	local now, pos, best, bestDist = CurTime(), self:GetPos()
 	for rag in pairs(carrion) do
-		if self:IsCarrion(rag) then
+		if self:IsCarrion(rag) and not self:Shuns(rag, now) then
 			local heart = self:Heart(rag)
 			local d = heart:Distance(pos)
-			local known = rag == self.Leftover and d < LEFTOVER_RANGE
-			local smelt = d < CARRION_RANGE and now - (rag.EvilCrawlerDiedAt or now) > AIRBORNE
-			if (not best or d < bestDist) and (known or smelt or d < CARRION_RANGE and self:Clear(pos, rag, heart, MASK_OPAQUE)) then
-				best, bestDist = rag, d
+			if not best or d < bestDist then
+				local known = rag == self.Leftover and d < LEFTOVER_RANGE
+				local smelt = d < CARRION_RANGE and now - (rag.EvilCrawlerDiedAt or now) > AIRBORNE
+				local way = smelt and d >= SMELL_NEAR and self:Ring(rag, now)
+				if way then smelt = way.open or way.node ~= false end
+				if known or smelt or d < CARRION_RANGE and self:Clear(pos, rag, heart, MASK_OPAQUE) then
+					best, bestDist = rag, d
+				end
 			end
 		end
 	end
