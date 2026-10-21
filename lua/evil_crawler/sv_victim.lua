@@ -438,12 +438,14 @@ local function PlayerGetUp(rag, ply)
 	rag.EvilCrawlerOwner = nil
 	ply.EvilCrawlerBody = nil
 	local spot, health, kit = StandingSpot(ply, rag), ply:Health(), ply.EvilCrawlerKit or {}
+	local god = ply:HasGodMode()
 	ply.EvilCrawlerKit = nil
 
 	ply.EvilCrawlerGettingUp = true
 	ply:UnSpectate()
 	ply:Spawn()
 	ply.EvilCrawlerGettingUp = nil
+	if god then ply:GodEnable() end
 
 	ply:SetPos(spot)
 	ply:SetHealth(health)
