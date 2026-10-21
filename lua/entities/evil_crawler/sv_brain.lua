@@ -553,6 +553,12 @@ function ENT:Ponder()
 	end
 	self.Trail = nil
 
+	if self.Breach and now < self.BreachUntil and not self:Reached(self.Breach) then
+		self.Goal = self.Breach
+		return
+	end
+	self.Breach = nil
+
 	if self.State == "search" and now < self.SearchUntil then
 		if self:Reached(self.Goal) then self.Goal = self:Around(self.LastKnown, SEARCH_SPREAD) end
 		return
@@ -768,7 +774,8 @@ end
 function ENT:Tear(ent, at)
 	local now = CurTime()
 	if EvilCrawler.Setting("tear") == 0 or ent:IsVehicle() or ent:IsWorld() then return end
-	if not (CHASING[self.State] or self.State == "rage") or now - (self.ProgressTime or now) < TEAR_STALL then return end
+	local breaching = now < (self.BreachUntil or 0) and self:GetAct() == EvilCrawler.ACT_NONE
+	if not (CHASING[self.State] or self.State == "rage" or breaching) or now - (self.ProgressTime or now) < TEAR_STALL then return end
 	if self.Tearing ~= ent or now - self.TearAt > TEAR_LAPSE then
 		local phys = ent:GetPhysicsObject()
 		local mass = IsValid(phys) and phys:GetMass() or TEAR_MASS
@@ -776,6 +783,7 @@ function ENT:Tear(ent, at)
 		self.TearNeed = Lerp(math.min(1, mass / TEAR_MASS), TEAR_TIME[1], TEAR_TIME[2])
 	end
 	self.TearAt = now
+	if self.Goal then self.Breach, self.BreachUntil = self.Goal, math.max(self.BreachUntil or 0, now + TEAR_LAPSE) end
 	local wood = ent:GetMaterialType() == MAT_WOOD
 	if now >= (self.NextRend or 0) then
 		self.NextRend = now + TEAR_GAP * math.Rand(0.7, 1.3)
@@ -794,6 +802,7 @@ function ENT:Tear(ent, at)
 	end
 	if now - self.TearStart < self.TearNeed then return end
 	self.Tearing = nil
+	if self.Breach then self.BreachUntil = now + TEAR_PASS end
 	local snap = wood and WOOD_BREAK or METAL_BREAK
 	sound.Play(snap[math.random(#snap)], at, 95, math.random(80, 100))
 	if not IsValid(ent) then return end
@@ -1080,6 +1089,7 @@ function ENT:KnockOut(now)
 	self.OutUntil = now + EvilCrawler.Setting("knockout_time") * math.Rand(OUT_SPREAD[1], OUT_SPREAD[2])
 	self.LetGoUntil = self.OutUntil
 	self.Goal, self.Trail, self.DetourUntil = nil, nil, nil
+	self.Breach, self.BreachUntil = nil, nil
 	self:Scatter(now)
 	self:EmitSound(OUT_SOUND, 80, math.random(70, 80))
 	self:EmitSound(PAIN_SOUNDS[math.random(#PAIN_SOUNDS)], 85, math.random(70, 85))
@@ -1301,6 +1311,7 @@ function ENT:Flee(threat, now, slink)
 	self.Goal = self:FindLair(threat)
 	self.FleeUntil = now + FLEE_TIME
 	self.Slunk = slink
+	self.Breach, self.BreachUntil = nil, nil
 end
 
 function ENT:Watcher()
