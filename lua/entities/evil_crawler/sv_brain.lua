@@ -483,7 +483,7 @@ function ENT:Ponder()
 	end
 
 	local noise, loud = self:Listen(now)
-	if noise and loud >= (self.State == "listen" and self.Loud * 0.5 or self.State == "chase" and 0.5 or 0) then
+	if noise and loud >= (self.State == "listen" and self.Loud * 0.5 or self.State == "chase" and 0.5 or self.State == "track" and 0.3 or 0) then
 		self:SetState("listen")
 		self.Noise, self.Loud = noise, loud
 		self.Goal, self.LastKnown, self.Trail = noise.pos, noise.pos, nil
