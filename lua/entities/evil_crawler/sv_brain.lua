@@ -58,6 +58,7 @@ local GRUDGE_OUTWEIGH = 2
 local RAGE_BALK = 4
 local BALK_STEP = 48
 local FLEE_TIME = 8
+local FLEE_MIN = 3
 local HIDE_SPREAD = { 2 / 3, 4 / 3 }
 local HIDE_SIGHT = 1500
 local HIDE_CEILING = 3
@@ -1058,7 +1059,7 @@ function ENT:Hurt(attacker, from)
 		return
 	end
 	self:Enrage(attacker, now)
-	if not self:Flinches(now) then return end
+	if not self:Flinches(now, self:Weight(attacker)) then return end
 
 	if self:GetAct() ~= EvilCrawler.ACT_NONE then self:Release() end
 	self:Flee(IsValid(attacker) and attacker:EyePos() or from, now)
@@ -1163,9 +1164,9 @@ function ENT:Battered(now, w)
 	return self.Blows >= need
 end
 
-function ENT:Flinches(now)
+function ENT:Flinches(now, w)
 	if now - (self.StungAt or -math.huge) > RAGE_WINDOW then self.Stings = 0 end
-	self.Stings, self.StungAt = self.Stings + 1, now
+	self.Stings, self.StungAt = self.Stings + w, now
 	if self.Stings < EvilCrawler.Setting("flee_hits") then return false end
 	self.Stings = 0
 	return true
@@ -1309,6 +1310,7 @@ function ENT:Flee(threat, now, slink)
 	self:SetPrey(NULL)
 	self:SetState("flee")
 	self.Goal = self:FindLair(threat)
+	self.FleeFrom, self.FledAt = threat, now
 	self.FleeUntil = now + FLEE_TIME
 	self.Slunk = slink
 	self.Breach, self.BreachUntil = nil, nil
@@ -1327,6 +1329,10 @@ end
 function ENT:LyingLow(now)
 	if self.State == "flee" then
 		if self.Goal and not self:Reached(self.Goal) and now < self.FleeUntil then return true end
+		if now - (self.FledAt or 0) < FLEE_MIN then
+			self.Goal = self:FindLair(self.FleeFrom)
+			return true
+		end
 		self:SetState("hide")
 		if not self.Slunk then
 			self.RestNeed = EvilCrawler.Setting("hide_time") * math.Rand(HIDE_SPREAD[1], HIDE_SPREAD[2])
