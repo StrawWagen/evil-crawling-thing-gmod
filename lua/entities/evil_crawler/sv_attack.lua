@@ -277,21 +277,50 @@ local function Smooth(t)
 	return t * t * (3 - 2 * t)
 end
 
-local function Chest(corpse)
-	local bone = corpse:LookupBone("ValveBiped.Bip01_Spine2")
-	local index = bone and corpse:TranslateBoneToPhysBone(bone) or 0
-	return corpse:GetPhysicsObjectNum(index >= 0 and index or 0)
+local function Core(corpse)
+	if corpse.EvilCrawlerCore then return corpse.EvilCrawlerCore end
+	local count, center, mass = corpse:GetPhysicsObjectCount(), Vector(), 0
+	for i = 0, count - 1 do
+		local phys = corpse:GetPhysicsObjectNum(i)
+		if IsValid(phys) then
+			center:Add(phys:LocalToWorld(phys:GetMassCenter()) * phys:GetMass())
+			mass = mass + phys:GetMass()
+		end
+	end
+	if mass <= 0 then return 0 end
+	center:Div(mass)
+	local best, bestDist = 0, math.huge
+	for i = 0, count - 1 do
+		local phys = corpse:GetPhysicsObjectNum(i)
+		if IsValid(phys) then
+			local d = phys:LocalToWorld(phys:GetMassCenter()):DistToSqr(center)
+			if d < bestDist then best, bestDist = i, d end
+		end
+	end
+	corpse.EvilCrawlerCore = best
+	return best
 end
 
-local function Rotting(rag)
-	if not IsValid(rag) or Victim.bodies[rag] or rag.EvilCrawlerVictim or EvilCrawler.Faker(rag) or not CurrentPart(rag) then return false end
-	if EvilCrawler.Shared(rag) then return true end
-	local chest = Chest(rag)
-	return IsValid(chest) and chest:IsMotionEnabled()
+local function Chest(corpse)
+	local bone = corpse:LookupBone("ValveBiped.Bip01_Spine2")
+	local index = bone and corpse:TranslateBoneToPhysBone(bone) or -1
+	return corpse:GetPhysicsObjectNum(index >= 0 and index or Core(corpse))
 end
 
 local function Partless(corpse)
 	return not CurrentPart(corpse) and corpse:GetNW2Int(EvilCrawler.EATEN_VAR, 0) == 0 and not EvilCrawler.Shared(corpse)
+end
+
+local function Fleshy(rag)
+	return rag:LookupBone("ValveBiped.Bip01_Spine2") ~= nil or rag:GetPhysicsObjectCount() > 1
+end
+
+local function Rotting(rag)
+	if not IsValid(rag) or Victim.bodies[rag] or rag.EvilCrawlerVictim or EvilCrawler.Faker(rag) then return false end
+	if not CurrentPart(rag) and not Partless(rag) then return false end
+	if EvilCrawler.Shared(rag) then return true end
+	local chest = Chest(rag)
+	return IsValid(chest) and chest:IsMotionEnabled()
 end
 
 function ENT:IsCarrion(rag)
@@ -399,7 +428,7 @@ end
 hook.Add("OnEntityCreated", "EvilCrawlerCarrion", function(ent)
 	if ent:GetClass() ~= "prop_ragdoll" then return end
 	timer.Simple(0, function()
-		if IsValid(ent) and ent:LookupBone("ValveBiped.Bip01_Spine2") then
+		if IsValid(ent) and Fleshy(ent) then
 			carrion[ent] = true
 			ent.EvilCrawlerDiedAt = CurTime()
 		end
@@ -416,7 +445,7 @@ hook.Add("PostPlayerDeath", "EvilCrawlerCarrion", function(ply)
 end)
 
 for _, ent in ipairs(ents.FindByClass("prop_ragdoll")) do
-	if ent:LookupBone("ValveBiped.Bip01_Spine2") then
+	if Fleshy(ent) then
 		carrion[ent] = true
 		ent.EvilCrawlerDiedAt = ent.EvilCrawlerDiedAt or CurTime()
 	end
