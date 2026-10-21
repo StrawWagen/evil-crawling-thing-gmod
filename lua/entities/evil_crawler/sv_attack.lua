@@ -259,6 +259,20 @@ function ENT:Release()
 	self.SnaggedSince = nil
 end
 
+function ENT:Mercy()
+	local victim = self:GetVictim()
+	if not IsValid(victim) then return false end
+	if victim:IsPlayer() then
+		if not victim:HasGodMode() then return false end
+		self:Release()
+		return true
+	end
+	if not Victim.Spared(victim) then return false end
+	self:Release()
+	Victim.Spare(victim)
+	return true
+end
+
 local function Smooth(t)
 	return t * t * (3 - 2 * t)
 end
@@ -1207,6 +1221,10 @@ function ENT:PonderAct(now)
 		self.Goal = nil
 		return
 	end
+	if self:Mercy() then
+		self.Goal = nil
+		return
+	end
 	if act ~= ACT_STUN and not IsValid(self:GetVictim()) then
 		self:Release()
 		return
@@ -1266,6 +1284,7 @@ function ENT:UpdateAct(now)
 		self:Release()
 		return
 	end
+	if self:Mercy() then return end
 
 	if act == ACT_STRIKE then
 		if not EvilCrawler.Living(victim) then

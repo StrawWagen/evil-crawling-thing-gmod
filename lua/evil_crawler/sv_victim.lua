@@ -123,6 +123,10 @@ local function VoiceOf(npc, rag)
 	return MALE
 end
 
+local function Godly(ent)
+	return ent:IsPlayer() and ent:HasGodMode()
+end
+
 local function Say(rag, kind, level)
 	local lines = rag.EvilCrawlerVoice and rag.EvilCrawlerVoice[kind]
 	if not lines or EvilCrawler.Setting("victim_voices") == 0 then return end
@@ -334,7 +338,7 @@ end
 
 function Victim.Kill(rag, attacker)
 	local npc = rag.EvilCrawlerOwner
-	if not IsValid(npc) then return end
+	if not IsValid(npc) or Godly(npc) then return end
 	Victim.bodies[rag] = nil
 	rag.EvilCrawlerOwner = nil
 
@@ -361,14 +365,14 @@ end
 
 function Victim.Hurt(rag, amount, attacker)
 	local npc = rag.EvilCrawlerOwner
-	if not IsValid(npc) then return end
+	if not IsValid(npc) or Godly(npc) then return end
 	npc:SetHealth(npc:Health() - amount)
 	if npc:Health() <= 0 then Victim.Kill(rag, attacker) end
 end
 
 function Victim.Wound(rag, attacker, at)
 	local npc = rag.EvilCrawlerOwner
-	if not IsValid(npc) then return end
+	if not IsValid(npc) or Godly(npc) then return end
 	if EvilCrawler.Fake(npc) == rag then
 		local dmg = DamageInfo()
 		dmg:SetDamage(100 * math.Rand(WOUND[1], WOUND[2]))
@@ -456,7 +460,6 @@ local function PlayerGetUp(rag, ply)
 	for id, count in pairs(kit.ammo or {}) do ply:SetAmmo(count, id) end
 	if kit.active then ply:SelectWeapon(kit.active) end
 	Evil.Scare(ply, ESCAPE_FEAR)
-	rag:Remove()
 end
 
 local function GetUp(rag, npc)
@@ -469,6 +472,7 @@ local function GetUp(rag, npc)
 	end
 	if npc:IsPlayer() then
 		PlayerGetUp(rag, npc)
+		rag:Remove()
 		return
 	end
 	Victim.bodies[rag] = nil
@@ -494,10 +498,26 @@ local function GetUp(rag, npc)
 	end
 end
 
+function Victim.Spare(rag)
+	local holder = rag.EvilCrawlerHolder
+	if IsValid(holder) and holder:GetVictim() == rag then holder:Release() end
+	local owner = rag.EvilCrawlerOwner
+	if IsValid(owner) then GetUp(rag, owner) end
+end
+
+function Victim.Spared(rag)
+	local owner = rag.EvilCrawlerOwner
+	return IsValid(owner) and Godly(owner)
+end
+
 local function Update(rag, now)
 	local npc = rag.EvilCrawlerOwner
 	if not IsValid(npc) then
 		Victim.bodies[rag] = nil
+		return
+	end
+	if Godly(npc) then
+		Victim.Spare(rag)
 		return
 	end
 	local fake = EvilCrawler.Fake(npc) == rag
@@ -601,7 +621,7 @@ hook.Add("EntityRemoved", "EvilCrawlerVictims", function(ent)
 	if not owner:IsPlayer() then
 		owner:Remove()
 	elseif owner:Alive() and EvilCrawler.Own(owner, "FakeRagdoll") ~= ent then
-		owner:KillSilent()
+		if owner:HasGodMode() then PlayerGetUp(ent, owner) else owner:KillSilent() end
 	end
 end)
 
