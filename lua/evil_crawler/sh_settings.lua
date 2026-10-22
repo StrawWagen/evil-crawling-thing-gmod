@@ -76,6 +76,8 @@ EvilCrawler.SETTINGS = {
 		help = "Colour of its flesh. The colour tool paints single crawlers over this" },
 	{ name = "burst", default = 1100, min = 100, max = 3000, decimals = 0, label = "Dart speed",
 		help = "Top speed of a dart" },
+	{ name = "hunter", default = 0, min = 0, max = 5, decimals = 1, label = "Hunter",
+		help = "How often a hungry crawler gets a hunch where a player is and goes to look. Higher is more often and closer. At 0 it only finds you on its own" },
 	{ name = "sight_range", default = 4000, min = 0, max = 10000, decimals = 0, label = "Sight range",
 		help = "How far crawlers can see" },
 	{ name = "hearing", default = 1, min = 0, max = 5, decimals = 1, label = "Hearing",

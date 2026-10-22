@@ -52,6 +52,8 @@ local LEAP_ARCS = { 1, 1.5 }
 local LEAP_GAP = 3
 local LEAP_MISS = 150
 local POUNCE_REACH = 450
+local TIP_GAP = 45
+local TIP_FUZZ = 700
 local HUNGRY_PULL = 2
 local DEATH_PULL = 4
 local SNIFF_TIME = 5
@@ -604,6 +606,7 @@ function ENT:Ponder()
 		if self:Reached(self.Goal) then self.Goal = self:Around(self.LastKnown, SEARCH_SPREAD) end
 		return
 	end
+	if self:Tipped(now) then return end
 
 	if self.Taunt then
 		local by = self.Taunt.source
@@ -888,6 +891,28 @@ function ENT:Veer(now, time, from)
 	end
 	self.Detour = dir * 400
 	self.DetourUntil = now + time
+end
+
+function ENT:Tipped(now)
+	local hunter = EvilCrawler.Setting("hunter")
+	if hunter <= 0 or EvilCrawler.IgnoresPlayers() or not self:IsHungry() then return false end
+	if not self.NextTip then self.NextTip = now + TIP_GAP / hunter * math.Rand(0.3, 1) end
+	if now < self.NextTip then return false end
+	self.NextTip = now + TIP_GAP / hunter * math.Rand(0.7, 1.3)
+	local picks = {}
+	for _, ply in ipairs(player.GetAll()) do
+		if ply:Alive() and ply:GetObserverMode() == OBS_MODE_NONE and not ply:IsFlagSet(FL_NOTARGET)
+			and not EvilCrawler.Noclipping(ply) and self:Wants(ply) then
+			picks[#picks + 1] = ply
+		end
+	end
+	if #picks == 0 then return false end
+	local fuzz = TIP_FUZZ / hunter
+	self.LastKnown = Proxy(picks[math.random(#picks)]):GetPos() + Vector(math.Rand(-fuzz, fuzz), math.Rand(-fuzz, fuzz), 0)
+	self:SetState("search")
+	self.Goal = self.LastKnown
+	self.SearchUntil = now + SEARCH_TIME * 2
+	return true
 end
 
 function ENT:Pounce(prey, now)
