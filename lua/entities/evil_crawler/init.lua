@@ -74,7 +74,7 @@ function ENT:SpawnFunction(ply, tr, class)
 	if not tr.Hit then return end
 
 	local ent = ents.Create(class)
-	ent:SetPos(tr.HitPos + tr.HitNormal * self.BodyHeight)
+	ent:SetPos(tr.HitPos + tr.HitNormal * self.BodyHeight * EvilCrawler.Setting("size"))
 	ent:SetAngles(Angle(0, ply:EyeAngles().y + 180, 0))
 	ent.Master = ply
 	ent.SpawnUp = tr.HitNormal
@@ -90,6 +90,7 @@ function ENT:Initialize()
 	self:SetCollisionGroup(COLLISION_GROUP_WEAPON)
 
 	if self:GetSeed() == 0 then self:SetSeed(math.random(1, 2 ^ 30)) end
+	if self:GetBorn() <= 0 then self:SetBorn(EvilCrawler.Setting("size")) end
 	local morph = EvilCrawler.Grow(self:GetSeed())
 	self.BaseHeight = morph.height
 	self:Resize()

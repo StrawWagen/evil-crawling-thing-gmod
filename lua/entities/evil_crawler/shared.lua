@@ -168,6 +168,7 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Int", 4, "Taken")
 	self:NetworkVar("Entity", 2, "Pilot")
 	self:NetworkVar("Vector", 0, "StabAt")
+	self:NetworkVar("Float", 3, "Born")
 end
 
 function ENT:Inside()
@@ -176,7 +177,12 @@ end
 
 function ENT:Size()
 	local grow = 1 + EvilCrawler.Setting("grow") * self:GetGorged() / #EvilCrawler.PARTS + EvilCrawler.TAKEN_GROW * self:Inside()
-	return math.min(grow, EvilCrawler.Setting("grow_max"))
+	return self:Birth() * math.min(grow, EvilCrawler.Setting("grow_max"))
+end
+
+function ENT:Birth()
+	local born = self:GetBorn()
+	return born > 0 and born or 1
 end
 
 function ENT:Wits()

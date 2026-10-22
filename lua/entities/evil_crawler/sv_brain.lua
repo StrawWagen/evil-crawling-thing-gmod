@@ -84,7 +84,6 @@ local BREATH_LOOP = "npc/zombie_poison/pz_breathe_loop1.wav"
 local WAKE_SOUND = "npc/barnacle/barnacle_tongue_pull1.wav"
 local RISE_TIME = 1.2
 local TIRED_SLOW = 0.5
-local KILL_HITS = 6
 local DEATH_SOUND = "physics/flesh/flesh_bloody_break.wav"
 local DOORS = { prop_door_rotating = true, func_door = true, func_door_rotating = true }
 local BASH_GAP = 2
@@ -194,7 +193,7 @@ function ENT:Feels(ent, pos)
 	local creature = Creature(ent)
 	local speed = creature and (ent.EvilCrawlerSpeed or 0) or body:GetVelocity():Length()
 	local tremor = d < TREMOR_RANGE and (creature or body ~= ent or ent:IsOnGround()) and speed > TREMOR_SPEED
-	if (d < TOUCH_RANGE or tremor) and self:Clear(pos, ent) then return true, d end
+	if (d < TOUCH_RANGE * self.Scale or tremor) and self:Clear(pos, ent) then return true, d end
 	return false
 end
 
@@ -1091,7 +1090,7 @@ function ENT:Hurt(attacker, from)
 	if self:GetAct() == EvilCrawler.ACT_OUT then
 		self:Blame(attacker)
 		if IsValid(attacker) and attacker:IsPlayer() then self.Blows = self.Blows + 1 end
-		if EvilCrawler.Setting("killable") > 0 and self.Blows >= KILL_HITS then self:Die() end
+		if EvilCrawler.Setting("killable") > 0 and self.Blows >= EvilCrawler.Setting("kill_hits") * self:Birth() then self:Die() end
 		return
 	end
 	if self:Raging(now) then
@@ -1199,7 +1198,7 @@ function ENT:Raging(now)
 end
 
 function ENT:Weight(attacker)
-	return IsValid(attacker) and attacker:IsPlayer() and 1 or EvilCrawler.Setting("npc_hits")
+	return (IsValid(attacker) and attacker:IsPlayer() and 1 or EvilCrawler.Setting("npc_hits")) / self:Birth()
 end
 
 function ENT:Provoked(now, w)
@@ -1221,10 +1220,12 @@ function ENT:Battered(now, w)
 end
 
 function ENT:Flinches(now, w)
+	if EvilCrawler.Setting("flee") == 0 then return false end
 	if now - (self.StungAt or -math.huge) > RAGE_WINDOW then self.Stings = 0 end
 	self.Stings, self.StungAt = self.Stings + w, now
-	if self.Stings < EvilCrawler.Setting("flee_hits") then return false end
+	if self.Stings < EvilCrawler.Setting("flee_hits") + EvilCrawler.Setting("nerve") * (self.Fled or 0) then return false end
 	self.Stings = 0
+	self.Fled = (self.Fled or 0) + 1
 	return true
 end
 
@@ -1310,7 +1311,7 @@ function ENT:Rampage(now)
 		if not self.Goal or self:Reached(self.Goal) then self.Goal = self:Around(pos, 600) end
 		return true
 	end
-	if Proxy(target):NearestPoint(pos):Distance(pos) < RAGE_REACH and self:Clear(pos, target, nil, MASK_OPAQUE) then
+	if Proxy(target):NearestPoint(pos):Distance(pos) < RAGE_REACH * self.Scale and self:Clear(pos, target, nil, MASK_OPAQUE) then
 		self:Sear(target)
 		return true
 	end

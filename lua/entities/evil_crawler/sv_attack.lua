@@ -120,6 +120,7 @@ local spat = {}
 
 function ENT:IsEdible(ent)
 	if not Creature(ent) or not EvilCrawler.Living(ent) or ent.EvilCrawlerVictim or Evil.Owner(ent) or Victim.Shrugged(ent) then return false end
+	if EvilCrawler.Setting("attack_npcs") == 0 and ent ~= self.Grudge then return false end
 	if ent:IsNextBot() then return true end
 	if ent:GetMoveType() ~= MOVETYPE_STEP then return false end
 	local size = ent:OBBMaxs() - ent:OBBMins()
