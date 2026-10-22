@@ -119,7 +119,7 @@ local INSIDE_VAR = EvilCrawler.INSIDE_VAR
 local spat = {}
 
 function ENT:IsEdible(ent)
-	if not Creature(ent) or not EvilCrawler.Living(ent) or ent.EvilCrawlerVictim or Victim.Shrugged(ent) then return false end
+	if not Creature(ent) or not EvilCrawler.Living(ent) or ent.EvilCrawlerVictim or Evil.Owner(ent) or Victim.Shrugged(ent) then return false end
 	if ent:IsNextBot() then return true end
 	if ent:GetMoveType() ~= MOVETYPE_STEP then return false end
 	local size = ent:OBBMaxs() - ent:OBBMins()
@@ -138,7 +138,7 @@ function ENT:Wants(ply)
 end
 
 function ENT:WouldTake(ply)
-	return self:Wants(ply) and ply:Alive() and not ply.EvilCrawlerVictim
+	return self:Wants(ply) and ply:Alive() and not ply.EvilCrawlerVictim and not Evil.Owner(ply)
 end
 
 function ENT:CanAttack(ent)
@@ -317,7 +317,7 @@ local function Fleshy(rag)
 end
 
 local function Rotting(rag)
-	if not IsValid(rag) or Victim.bodies[rag] or rag.EvilCrawlerVictim or EvilCrawler.Faker(rag) then return false end
+	if not IsValid(rag) or Victim.bodies[rag] or rag.EvilCrawlerVictim or rag.EvilDowned or EvilCrawler.Faker(rag) then return false end
 	if not CurrentPart(rag) and not Partless(rag) then return false end
 	if EvilCrawler.Shared(rag) then return true end
 	local chest = Chest(rag)
@@ -1080,7 +1080,7 @@ end
 
 local function Takeable(ply)
 	return not EvilCrawler.IgnoresPlayers() and ply:Alive() and not ply:HasGodMode() and not ply.EvilCrawlerVictim
-		and ply:LookupBone("ValveBiped.Bip01_Spine2") ~= nil
+		and not Evil.Owner(ply) and ply:LookupBone("ValveBiped.Bip01_Spine2") ~= nil
 end
 
 function ENT:Catchable(ent, pilot)
