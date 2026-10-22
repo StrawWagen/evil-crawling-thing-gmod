@@ -116,6 +116,13 @@ local WAY_TIME = 5
 local SKIRT_TIME = 15
 local SKIRT_MIN = 96
 local STUCK_BACK = 1
+local THROWN = { prop_physics = true, prop_physics_multiplayer = true, prop_physics_respawnable = true }
+local THROW_GAP = { 2.5, 5 }
+local THROW_REACH = 140
+local THROW_RANGE = { 160, 1400 }
+local THROW_MASS = 150
+local THROW_SPEED = 1300
+local THROW_SOUNDS = { "npc/zombie/claw_miss1.wav", "npc/zombie/claw_miss2.wav" }
 local BASH_SOUNDS = { "physics/wood/wood_box_impact_hard3.wav", "physics/wood/wood_panel_impact_hard1.wav" }
 
 local RHYTHM = {
@@ -1316,8 +1323,46 @@ function ENT:Rampage(now)
 		return true
 	end
 	self.Goal = Proxy(target):GetPos()
+	self:Hurl(target, now)
 	self:Closes(target, pos, now)
 	self:Overhead(target, now)
+	return true
+end
+
+function ENT:Throwable(ent)
+	if not THROWN[ent:GetClass()] or ent:GetMoveType() ~= MOVETYPE_VPHYSICS or ent:IsPlayerHolding() or Evil.Owner(ent) then return end
+	local phys = ent:GetPhysicsObject()
+	if not IsValid(phys) or not phys:IsMotionEnabled() or constraint.HasConstraints(ent) then return end
+	if phys:GetMass() > THROW_MASS * self.Scale then return end
+	return phys
+end
+
+function ENT:Hurl(target, now)
+	if EvilCrawler.Setting("throw") == 0 or now < (self.NextHurl or 0) or not Burnable(target) then return false end
+	self.NextHurl = now + math.Rand(THROW_GAP[1], THROW_GAP[2])
+	local pos = self:GetPos()
+	local aim = Proxy(target):WorldSpaceCenter()
+	local d = aim:Distance(pos)
+	if d < THROW_RANGE[1] or d > THROW_RANGE[2] or not self:Clear(pos, target, nil, MASK_OPAQUE) then return false end
+	local best, bestPhys, bestMass
+	for _, ent in ipairs(ents.FindInSphere(pos, THROW_REACH * self.Scale)) do
+		local phys = self:Throwable(ent)
+		if phys and (not best or phys:GetMass() > bestMass)
+			and not util.TraceLine({ start = ent:WorldSpaceCenter(), endpos = aim, filter = { ent, self, target }, mask = MASK_SOLID_BRUSHONLY }).Hit then
+			best, bestPhys, bestMass = ent, phys, phys:GetMass()
+		end
+	end
+	if not best then return false end
+	local from = best:WorldSpaceCenter()
+	local t = math.max(0.15, from:Distance(aim) / THROW_SPEED)
+	local fall = -physenv.GetGravity().z
+	local vel = (aim - from) / t + Vector(0, 0, 0.5 * fall * t)
+	bestPhys:Wake()
+	bestPhys:SetVelocity(vel)
+	bestPhys:AddAngleVelocity(VectorRand() * 400)
+	self.Torn = self.Torn or {}
+	self.Torn[best] = now + 2
+	sound.Play(THROW_SOUNDS[math.random(#THROW_SOUNDS)], from, 80, math.random(70, 90))
 	return true
 end
 
@@ -1385,6 +1430,7 @@ end
 
 function ENT:LyingLow(now)
 	if self.State == "flee" then
+		self:Hurl(self.Grudge, now)
 		if self.Goal and not self:Reached(self.Goal) and now < self.FleeUntil then return true end
 		if now - (self.FledAt or 0) < FLEE_MIN then
 			self.Goal = self:FindLair(self.FleeFrom)
