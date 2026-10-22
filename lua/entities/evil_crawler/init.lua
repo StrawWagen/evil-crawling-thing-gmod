@@ -31,6 +31,7 @@ local SQUEEZED = 0.35
 local DUCK_RATE, RISE_RATE = 12, 4
 local FACING = -0.5
 local GAP_GRIP = 0.1
+local GAP_HOLD = 2
 local WATER = bit.bor(CONTENTS_WATER, CONTENTS_SLIME)
 local SWIM_PACE = 0.6
 local SWIM_PUSH = 9
@@ -271,8 +272,13 @@ function ENT:Crawl(dt)
 		end
 
 		local height = (pos - anchor):Dot(normal)
-		local room
-		room, self.Gap = self:Headroom(pos, normal, height, wish:LengthSqr() > 1 and wish:GetNormalized() or nil)
+		local dir = wish:LengthSqr() > 1 and wish:GetNormalized() or nil
+		local room, gap = self:Headroom(pos, normal, height, dir)
+		if dir then
+			self.Gap, self.GapAt = gap, now
+		elseif now - (self.GapAt or 0) > GAP_HOLD then
+			self.Gap = nil
+		end
 		room = math.Clamp(room, ROOM_MIN, h)
 		self.Room = Lerp(1 - math.exp(-dt * (room < self.Room and DUCK_RATE or RISE_RATE)), self.Room, room)
 		local squeeze = math.Round(1 - self.Room / h, 2)
