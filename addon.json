@@ -4,6 +4,7 @@
 	"tags": [ "fun", "scenic" ],
 	"ignore": [
 		"*.md",
+		"LICENSE",
 		"*.blend",
 		"*.blend1",
 		".git*",
