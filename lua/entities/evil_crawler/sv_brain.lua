@@ -44,6 +44,8 @@ local HUNT_MEMORY = 4
 local LOST_MEMORY = 20
 local LOST_PULL = 3
 local STUCK_TIME = 2.5
+local OVER_VEER = 0.5
+local VEER_SPREAD = 0.6
 local LEAP_RANGE = 800
 local LEAP_SPEED = 600
 local LEAP_ARCS = { 1, 1.5 }
@@ -724,16 +726,16 @@ function ENT:Route(now)
 	end
 end
 
-function ENT:Unstick(to, now, time)
+function ENT:Unstick(to, now, time, from)
 	if self:GetSwimming() then
-		self:Veer(now, time)
+		self:Veer(now, time, from)
 		return
 	end
 	if self:Leap(to, now) then return end
 	if self.BodyUp.z < -0.5 then
 		self.LetGoUntil = now + 0.4
 	else
-		self:Veer(now, time)
+		self:Veer(now, time, from)
 	end
 end
 
@@ -830,8 +832,15 @@ function ENT:Tear(ent, at)
 	end
 end
 
-function ENT:Veer(now, time)
-	self.Detour = (self:Around(self:GetPos(), 1) - self:GetPos()):GetNormalized() * 400
+function ENT:Veer(now, time, from)
+	local pos, up = self:GetPos(), self.BodyUp
+	local dir = (self:Around(pos, 1) - pos):GetNormalized()
+	if from then
+		local away = pos - from
+		away = away - up * away:Dot(up)
+		if away:LengthSqr() > 1 then dir = (away:GetNormalized() + dir * VEER_SPREAD):GetNormalized() end
+	end
+	self.Detour = dir * 400
 	self.DetourUntil = now + time
 end
 
@@ -841,15 +850,12 @@ function ENT:Overhead(prey, now)
 		self.OverSince = nil
 		return
 	end
-	if (prey:WorldSpaceCenter() - self:GetPos()):Dot(self.BodyUp) < -self.BodyHeight then
-		self.OverSince = nil
-		self:Unstick(prey:GetPos(), now, 0.4)
-		return
-	end
+	if self.DetourUntil and now < self.DetourUntil then return end
+	local below = (prey:WorldSpaceCenter() - self:GetPos()):Dot(self.BodyUp) < -self.BodyHeight
 	self.OverSince = self.OverSince or now
-	if now - self.OverSince > EvilCrawler.Setting("reroute_time") / self:Wits() then
+	if below and self.BodyUp.z < -0.5 or now - self.OverSince > EvilCrawler.Setting("reroute_time") / self:Wits() then
 		self.OverSince = nil
-		self:Unstick(prey:GetPos(), now, 0.4)
+		self:Unstick(prey:GetPos(), now, OVER_VEER, prey:GetPos())
 	end
 end
 
