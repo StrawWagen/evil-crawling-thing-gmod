@@ -184,7 +184,9 @@ function ENT:Feels(ent, pos)
 	local d = center:Distance(pos)
 	if self.Spotted[ent] and self.InView[ent] then return true, d end
 	local body = Mover(ent)
-	local tremor = d < TREMOR_RANGE and (body ~= ent or ent:IsOnGround()) and body:GetVelocity():Length() > TREMOR_SPEED
+	local creature = Creature(ent)
+	local speed = creature and (ent.EvilCrawlerSpeed or 0) or body:GetVelocity():Length()
+	local tremor = d < TREMOR_RANGE and (creature or body ~= ent or ent:IsOnGround()) and speed > TREMOR_SPEED
 	if (d < TOUCH_RANGE or tremor) and self:Clear(pos, ent) then return true, d end
 	return false
 end
