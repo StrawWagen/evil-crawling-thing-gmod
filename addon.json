@@ -5,6 +5,7 @@
 	"ignore": [
 		"*.md",
 		"LICENSE",
+		"*.gma",
 		"*.blend",
 		"*.blend1",
 		".git*",
