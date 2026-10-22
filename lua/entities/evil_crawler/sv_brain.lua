@@ -51,6 +51,7 @@ local LEAP_SPEED = 600
 local LEAP_ARCS = { 1, 1.5 }
 local LEAP_GAP = 3
 local LEAP_MISS = 150
+local POUNCE_REACH = 450
 local HUNGRY_PULL = 2
 local DEATH_PULL = 4
 local SNIFF_TIME = 5
@@ -488,6 +489,7 @@ function ENT:Ponder()
 		self.Goal = Proxy(prey):GetPos()
 		self.LastKnown = self:Lead(prey)
 		self.Hunted, self.SensedAt = prey, now
+		if self:Pounce(prey, now) then return end
 		self:Overhead(prey, now)
 		return
 	end
@@ -886,6 +888,14 @@ function ENT:Veer(now, time, from)
 	end
 	self.Detour = dir * 400
 	self.DetourUntil = now + time
+end
+
+function ENT:Pounce(prey, now)
+	if self.BodyUp.z > -0.5 or self:GetSwimming() then return false end
+	local pos, at = self:GetPos(), Proxy(prey):GetPos()
+	if pos.z - at.z < self.BodyHeight * 2 then return false end
+	if Vector(at.x - pos.x, at.y - pos.y, 0):Length() > POUNCE_REACH * self.Scale or not self:Clear(pos, prey) then return false end
+	return self:Leap(at, now)
 end
 
 function ENT:Overhead(prey, now)
