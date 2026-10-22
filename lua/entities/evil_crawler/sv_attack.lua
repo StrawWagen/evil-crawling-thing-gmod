@@ -200,6 +200,7 @@ end
 function ENT:Incinerate(victim)
 	self:Release()
 	victim.EvilCrawlerVictim = nil
+	if victim:IsPlayer() and (not victim:Alive() or victim:GetObserverMode() ~= OBS_MODE_NONE) then return end
 	if not victim:IsPlayer() and Victim.Shrugs(victim, self) then return end
 	if victim:IsPlayer() and victim:InVehicle() then Victim.Yank(victim, self:GetPos()) end
 	local center = Proxy(victim):WorldSpaceCenter()
@@ -220,7 +221,7 @@ function ENT:Incinerate(victim)
 	if not IsValid(body) then
 		local dmg = DamageInfo()
 		dmg:SetDamage(math.max(victim:Health(), 1) * 10 + 1000)
-		dmg:SetDamageType(DMG_DISSOLVE)
+		dmg:SetDamageType(victim:IsPlayer() and DMG_GENERIC or DMG_DISSOLVE)
 		dmg:SetAttacker(self)
 		dmg:SetInflictor(self)
 		dmg:SetDamagePosition(center)
