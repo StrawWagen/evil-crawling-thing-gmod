@@ -406,6 +406,14 @@ function ENT:Ponder()
 
 	local puppet = cv_puppet:GetBool()
 	local meal = not puppet and self:Carrion()
+	local reek = not meal and not puppet and self:Reeks(pos, now)
+	local looked, prey
+	if (meal or reek) and self.State ~= "hide" then
+		self:Look(now)
+		looked, prey = true, self:Sense()
+		local hunted = self.State == "hunt" and IsValid(self.Hunted) and Creature(self.Hunted) and now - self.SensedAt < HUNT_MEMORY
+		if prey and Creature(prey) or hunted then meal, reek = nil, nil end
+	end
 	if meal then
 		self.Taunt = nil
 		self:SetPrey(NULL)
@@ -414,7 +422,6 @@ function ENT:Ponder()
 		self.Goal = self:Approach(meal, now)
 		return
 	end
-	local reek = not puppet and self:Reeks(pos, now)
 	if reek then
 		local heart = reek.trail.last
 		if not self:Reached(heart.pos) then
@@ -444,8 +451,10 @@ function ENT:Ponder()
 	self.Visited = self.Visited or {}
 	self.Visited[Cell(pos)] = now
 
-	self:Look(now)
-	local prey = self:Sense()
+	if not looked then
+		self:Look(now)
+		prey = self:Sense()
+	end
 	self:SetPrey(prey or NULL)
 	if prey then
 		self.Taunt = nil
