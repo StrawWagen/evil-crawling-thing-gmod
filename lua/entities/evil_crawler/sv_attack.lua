@@ -143,9 +143,14 @@ end
 
 function ENT:CanAttack(ent)
 	if Proxy(ent):WorldSpaceCenter():Distance(self:GetPos()) >= ATTACK_REACH * self.Scale then return false end
-	if not self:Clear(self:GetPos(), ent) then return false end
+	if not self:Reachable(ent) then return false end
 	if ent:IsPlayer() then return self:WouldTake(ent) end
 	return self:IsHungry() and self:IsEdible(ent)
+end
+
+function ENT:Reachable(ent)
+	local pos = self:GetPos()
+	return self:Clear(pos, ent) or self:Clear(pos, ent, Proxy(ent):EyePos())
 end
 
 function ENT:StartStrike(npc)
@@ -1333,7 +1338,7 @@ function ENT:UpdateAct(now)
 		if t >= IMPACT_TIME then
 			local center = Proxy(victim):WorldSpaceCenter()
 			local reach = MISS_REACH * self.Scale * (1 + KNOW_REACH * self:Knows("dodge"))
-			if center:Distance(self:GetPos()) >= reach or not self:Clear(self:GetPos(), victim) then
+			if center:Distance(self:GetPos()) >= reach or not self:Reachable(victim) then
 				if victim:IsPlayer() then Souls:Watch(victim, "dodge") end
 				self:Release()
 			elseif victim:IsPlayer() then

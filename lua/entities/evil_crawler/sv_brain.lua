@@ -60,6 +60,7 @@ local GRUDGE_HOLD = 8
 local GRUDGE_OUTWEIGH = 2
 local RAGE_BALK = 4
 local BALK_STEP = 48
+local BALK_NEAR = 220
 local FLEE_TIME = 8
 local FLEE_MIN = 3
 local HIDE_SPREAD = { 2 / 3, 4 / 3 }
@@ -273,11 +274,12 @@ end
 
 function ENT:Sense()
 	local pos = self:GetPos()
+	local now = CurTime()
 	local meal, mealDist, person, personDist
 
 	if self:IsHungry() then
 		for npc in pairs(Scent.npcs) do
-			if IsValid(npc) and self:IsEdible(npc) then
+			if IsValid(npc) and self:IsEdible(npc) and not self:Balks(npc, now) then
 				local felt, d = self:Feels(npc, pos)
 				if felt and (not meal or d < mealDist) then meal, mealDist = npc, d end
 			end
@@ -286,8 +288,10 @@ function ENT:Sense()
 	if meal then return meal end
 
 	for _, ply in ipairs(player.GetAll()) do
-		local felt, d = self:Feels(ply, pos)
-		if felt and (not person or d < personDist) then person, personDist = ply, d end
+		if not self:Balks(ply, now) then
+			local felt, d = self:Feels(ply, pos)
+			if felt and (not person or d < personDist) then person, personDist = ply, d end
+		end
 	end
 	return person
 end
@@ -300,7 +304,7 @@ function ENT:Appeal(node, now)
 		if EvilCrawler.Setting("eat_corpses") == 0 or not self:IsHungry() or owner and (not self:IsCarrion(owner) or self:Shuns(owner, now)) then return 0 end
 		return Scent.Intensity(node, now) * DEATH_PULL
 	end
-	if not IsValid(owner) then return 0 end
+	if not IsValid(owner) or self:Balks(owner, now) then return 0 end
 	local w = 1
 	if node.npc then
 		if not (self:IsHungry() and self:IsEdible(owner)) then return 0 end
@@ -467,6 +471,11 @@ function ENT:Ponder()
 			self:StartStrike(prey)
 			return
 		end
+		if Proxy(prey):WorldSpaceCenter():Distance(pos) < BALK_NEAR * self.Scale then
+			self:Closes(prey, pos, now)
+		elseif self.Closing == prey then
+			self.Closing = nil
+		end
 		self:SetState("hunt")
 		self.Trail = nil
 		self.Goal = Proxy(prey):GetPos()
@@ -476,14 +485,19 @@ function ENT:Ponder()
 		return
 	end
 	if self.State == "hunt" then
-		if now - self.SensedAt < HUNT_MEMORY and not self:Reached(self.LastKnown) then
+		if self:Balks(self.Hunted, now) then
+			self:SetState("roam")
+			self.Goal = nil
+		else
+			if now - self.SensedAt < HUNT_MEMORY and not self:Reached(self.LastKnown) then
+				self.Goal = self.LastKnown
+				return
+			end
+			self:SetState("search")
 			self.Goal = self.LastKnown
-			return
+			self.SearchUntil = now + SEARCH_TIME
+			self.Trail = self:Pickup(self.Hunted, self.LastKnown)
 		end
-		self:SetState("search")
-		self.Goal = self.LastKnown
-		self.SearchUntil = now + SEARCH_TIME
-		self.Trail = self:Pickup(self.Hunted, self.LastKnown)
 	end
 
 	local glimpse = self:Glimpse()
