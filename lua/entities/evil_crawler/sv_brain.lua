@@ -113,6 +113,9 @@ local SEEK_STEPS = 24
 local GAP_LEVELS = { 1, 0.5, 0.25 }
 local ROUTE_GAP = 1
 local WAY_TIME = 5
+local SKIRT_TIME = 15
+local SKIRT_MIN = 96
+local STUCK_BACK = 1
 local BASH_SOUNDS = { "physics/wood/wood_box_impact_hard3.wav", "physics/wood/wood_panel_impact_hard1.wav" }
 
 local RHYTHM = {
@@ -661,7 +664,9 @@ function ENT:CheckProgress(now)
 	elseif now - self.ProgressTime > STUCK_TIME and not (self.Tearing and now - self.TearAt < TEAR_LAPSE) then
 		self.BestDist, self.ProgressTime = d, now
 		self.Way = nil
-		self:Unstick(goal, now, 1.5)
+		if self.SkirtSide then self.SkirtSide = 3 - self.SkirtSide end
+		self.NextRoute = now + STUCK_BACK
+		self:Unstick(goal, now, STUCK_BACK, goal)
 	end
 end
 
@@ -705,16 +710,17 @@ function ENT:Route(now)
 	n:Normalize()
 
 	local along, base = n:Cross(up), tr.HitPos + n * h
-	local reach = { base, base }
+	local side = self:Side(goal, to:Dot(along) >= 0 and 1 or 2, now)
+	local reach, far, order = { base, base }, {}, { side, 3 - side }
 	for i = 1, SEEK_STEPS do
-		for s = 1, 2 do
+		for _, s in ipairs(order) do
 			local last = reach[s]
 			if last then
 				local p = base + along * ((s == 1 and 1 or -1) * i * SEEK_STEP)
 				if self:Trace(last, p).Hit then
 					reach[s] = false
 				else
-					reach[s] = p
+					reach[s], far[s] = p, p
 					if self:Opening(p, -n, up) then
 						self.Way = { p, p - n * (h * 3), goal = goal }
 						self.WayUntil = now + WAY_TIME
@@ -724,6 +730,23 @@ function ENT:Route(now)
 			end
 		end
 	end
+	if now - self.SkirtSince > SKIRT_TIME then return end
+	for _, s in ipairs(order) do
+		local p = far[s]
+		if p and p:Distance(base) >= SKIRT_MIN and not self:Reached(p) then
+			self.SkirtSide = s
+			self.Way = { p, goal = goal }
+			self.WayUntil = now + WAY_TIME
+			return
+		end
+	end
+end
+
+function ENT:Side(goal, toward, now)
+	if not self.SkirtGoal or self.SkirtGoal:Distance(goal) > 300 then
+		self.SkirtGoal, self.SkirtSide, self.SkirtSince = goal, toward, now
+	end
+	return self.SkirtSide
 end
 
 function ENT:Unstick(to, now, time, from)
