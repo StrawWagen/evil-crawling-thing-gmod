@@ -1176,6 +1176,13 @@ hook.Add("StartCommand", "EvilCrawlerPilot", function(ply, cmd)
 	cmd:ClearButtons()
 end)
 
+util.AddNetworkString("EvilCrawlerLetGo")
+
+net.Receive("EvilCrawlerLetGo", function(_, ply)
+	local crawler = EvilCrawler.Inside(ply)
+	if crawler then crawler:LetOut(ply) end
+end)
+
 hook.Add("PlayerDeathThink", "EvilCrawlerPilot", function(ply)
 	if EvilCrawler.Inside(ply) then return false end
 end)

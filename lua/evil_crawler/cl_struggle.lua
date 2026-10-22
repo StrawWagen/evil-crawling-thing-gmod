@@ -77,22 +77,33 @@ local function Vignette(k)
 	end
 end
 
-local letGoSince
+local letGoSince, letGoSent
+
+local function LetGoHeld()
+	local key = input.LookupBinding("+use") or "e"
+	local code = input.GetKeyCode(key)
+	if not (code and code > 0 and input.IsButtonDown(code) and not vgui.CursorVisible()) then
+		letGoSince, letGoSent = nil, nil
+		return 0, key
+	end
+	letGoSince = letGoSince or RealTime()
+	local held = math.Clamp((RealTime() - letGoSince) / EvilCrawler.LET_GO_TIME, 0, 1)
+	if held >= 1 and not letGoSent then
+		letGoSent = true
+		net.Start("EvilCrawlerLetGo")
+		net.SendToServer()
+	end
+	return held, key
+end
 
 local function LetGoPrompt()
 	local ply = LocalPlayer()
-	if not IsValid(ply) or not cv_prompt:GetBool() or not EvilCrawler.Inside(ply) then
-		letGoSince = nil
+	if not IsValid(ply) or not EvilCrawler.Inside(ply) then
+		letGoSince, letGoSent = nil, nil
 		return
 	end
-	local key = input.LookupBinding("+use") or "e"
-	local code = input.GetKeyCode(key)
-	if code and code > 0 and input.IsButtonDown(code) and not vgui.CursorVisible() then
-		letGoSince = letGoSince or RealTime()
-	else
-		letGoSince = nil
-	end
-	local held = letGoSince and math.Clamp((RealTime() - letGoSince) / EvilCrawler.LET_GO_TIME, 0, 1) or 0
+	local held, key = LetGoHeld()
+	if not cv_prompt:GetBool() then return end
 	local kw, kh = EXIT_SIZE[1], EXIT_SIZE[2]
 	local cx, cy = ScrW() * 0.5, ScrH() * EXIT_Y
 	local x, y = cx - kw * 0.5, cy - kh * 0.5
